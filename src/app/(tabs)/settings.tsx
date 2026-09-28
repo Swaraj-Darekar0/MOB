@@ -184,34 +184,19 @@ export default function ProfileScreen() {
           />
         </View>
 
-        {/* Single Reset Button with Embedded "Start Fresh" Checkbox */}
+        {/* Reset Buckets & Activity Trigger */}
         <View style={styles.resetContainer}>
-          <View style={[styles.resetButton, clearOnboarding && styles.resetButtonActive]}>
-            <TouchableOpacity
-              style={styles.resetMainAction}
-              activeOpacity={0.7}
-              onPress={() => setShowResetConfirm(true)}
-            >
-              <RotateCcw size={12} color="#EF4444" strokeWidth={2.4} />
-              <Text style={styles.resetBtnText}>Reset Buckets & Activity</Text>
-            </TouchableOpacity>
-
-            <View style={styles.resetDivider} />
-
-            <TouchableOpacity
-              style={styles.resetCheckboxAction}
-              activeOpacity={0.7}
-              onPress={() => setClearOnboarding((prev) => !prev)}
-              hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
-            >
-              <View style={[styles.checkboxBox, clearOnboarding && styles.checkboxBoxActive]}>
-                {clearOnboarding && <Check size={10} color="#FFFFFF" strokeWidth={3} />}
-              </View>
-              <Text style={[styles.checkboxLabel, clearOnboarding && styles.checkboxLabelActive]}>
-                Start Fresh
-              </Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={styles.resetBtn}
+            activeOpacity={0.7}
+            onPress={() => {
+              setClearOnboarding(false);
+              setShowResetConfirm(true);
+            }}
+          >
+            <RotateCcw size={13} color="#EF4444" strokeWidth={2.2} />
+            <Text style={styles.resetBtnText}>Reset Buckets & Activity</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Activity Section directly below the card */}
@@ -667,52 +652,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.xl,
     marginTop: -spacing.sm,
-    width: '100%',
   },
-  resetButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#121318',
-    borderRadius: borderRadius.pill,
-    borderWidth: 1,
-    borderColor: '#222530',
-    paddingVertical: 4,
-    paddingHorizontal: 6,
-  },
-  resetButtonActive: {
-    borderColor: 'rgba(239, 68, 68, 0.45)',
-    backgroundColor: 'rgba(239, 68, 68, 0.08)',
-  },
-  resetMainAction: {
+  resetBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 4,
-    paddingLeft: 8,
-    paddingRight: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: borderRadius.pill,
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.25)',
   },
   resetBtnText: {
     fontSize: 11.5,
     fontWeight: '700',
     color: '#EF4444',
-    letterSpacing: 0.2,
-  },
-  resetDivider: {
-    width: 1,
-    height: 14,
-    backgroundColor: '#262938',
-  },
-  resetCheckboxAction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 4,
-    paddingLeft: 10,
-    paddingRight: 8,
+    letterSpacing: 0.3,
   },
   checkboxBox: {
-    width: 15,
-    height: 15,
+    width: 16,
+    height: 16,
     borderRadius: 4,
     borderWidth: 1.5,
     borderColor: '#4E5268',
@@ -723,15 +683,6 @@ const styles = StyleSheet.create({
   checkboxBoxActive: {
     backgroundColor: '#EF4444',
     borderColor: '#EF4444',
-  },
-  checkboxLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.textSecondary,
-    letterSpacing: 0.1,
-  },
-  checkboxLabelActive: {
-    color: '#EF4444',
   },
   modalCheckboxCard: {
     flexDirection: 'row',
