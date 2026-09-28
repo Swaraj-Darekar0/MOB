@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/images/banner.png" alt="MOB — Virtual Envelope UPI Payment Control Layer" width="100%" />
+</p>
+
 # MOB — Virtual Envelope UPI Payment Control Layer
 
 <p align="center">
