@@ -184,32 +184,31 @@ export default function ProfileScreen() {
           />
         </View>
 
-        {/* Reset Action & Cache/Onboarding Checkbox */}
+        {/* Single Reset Button with Embedded "Start Fresh" Checkbox */}
         <View style={styles.resetContainer}>
-          <View style={styles.resetCard}>
+          <View style={[styles.resetButton, clearOnboarding && styles.resetButtonActive]}>
             <TouchableOpacity
-              style={[styles.resetBtn, clearOnboarding && styles.resetBtnActive]}
+              style={styles.resetMainAction}
               activeOpacity={0.7}
               onPress={() => setShowResetConfirm(true)}
             >
-              <RotateCcw size={13} color="#EF4444" strokeWidth={2.2} />
-              <Text style={styles.resetBtnText}>
-                {clearOnboarding ? 'Erase All & Reset App' : 'Reset Buckets & Activity'}
-              </Text>
+              <RotateCcw size={12} color="#EF4444" strokeWidth={2.4} />
+              <Text style={styles.resetBtnText}>Reset Buckets & Activity</Text>
             </TouchableOpacity>
 
-            {/* Little Checkbox inside the Reset Button Section */}
+            <View style={styles.resetDivider} />
+
             <TouchableOpacity
-              style={styles.resetCheckboxRow}
+              style={styles.resetCheckboxAction}
               activeOpacity={0.7}
               onPress={() => setClearOnboarding((prev) => !prev)}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
             >
               <View style={[styles.checkboxBox, clearOnboarding && styles.checkboxBoxActive]}>
-                {clearOnboarding && <Check size={11} color="#FFFFFF" strokeWidth={3} />}
+                {clearOnboarding && <Check size={10} color="#FFFFFF" strokeWidth={3} />}
               </View>
-              <Text style={styles.checkboxLabel}>
-                Clear cache & restart onboarding
+              <Text style={[styles.checkboxLabel, clearOnboarding && styles.checkboxLabelActive]}>
+                Start Fresh
               </Text>
             </TouchableOpacity>
           </View>
@@ -395,7 +394,7 @@ export default function ProfileScreen() {
                 <AlertTriangle size={24} color="#EF4444" />
               </View>
               <Text style={styles.resetModalTitle}>
-                {clearOnboarding ? 'Erase All & Restart Onboarding?' : 'Reset Buckets & Activity?'}
+                {clearOnboarding ? 'Reset & Start Fresh?' : 'Reset Buckets & Activity?'}
               </Text>
               <Text style={styles.resetModalSubtitle}>
                 {clearOnboarding
@@ -414,12 +413,12 @@ export default function ProfileScreen() {
               onPress={() => setClearOnboarding((prev) => !prev)}
             >
               <View style={[styles.checkboxBox, clearOnboarding && styles.checkboxBoxActive]}>
-                {clearOnboarding && <Check size={12} color="#FFFFFF" strokeWidth={3} />}
+                {clearOnboarding && <Check size={11} color="#FFFFFF" strokeWidth={3} />}
               </View>
               <View style={styles.modalCheckboxTextCol}>
-                <Text style={styles.modalCheckboxTitle}>Clear cache & restart onboarding</Text>
+                <Text style={styles.modalCheckboxTitle}>Start Fresh (Wipe cache & setup)</Text>
                 <Text style={styles.modalCheckboxDesc}>
-                  Wipes all setup data so you can restart fresh from the welcome screen
+                  Erase all data and restart fresh from the onboarding screen
                 </Text>
               </View>
             </TouchableOpacity>
@@ -433,7 +432,7 @@ export default function ProfileScreen() {
                 style={{ flex: 1 }}
               />
               <Button
-                title={clearOnboarding ? 'Erase & Restart' : 'Reset Everything'}
+                title={clearOnboarding ? 'Start Fresh' : 'Reset Everything'}
                 variant="danger"
                 size="md"
                 loading={isResetting}
@@ -462,7 +461,7 @@ export default function ProfileScreen() {
         >
           <ActivityIndicator size="small" color={colors.accent} />
           <Text style={styles.fadeAwayText}>
-            Erasing cache & restarting onboarding...
+            Starting fresh...
           </Text>
         </Animated.View>
       )}
@@ -670,54 +669,54 @@ const styles = StyleSheet.create({
     marginTop: -spacing.sm,
     width: '100%',
   },
-  resetCard: {
+  resetButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    flexWrap: 'wrap',
-    gap: 10,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    backgroundColor: '#0F1014',
+    backgroundColor: '#121318',
     borderRadius: borderRadius.pill,
     borderWidth: 1,
-    borderColor: '#1D1F28',
+    borderColor: '#222530',
+    paddingVertical: 4,
+    paddingHorizontal: 6,
   },
-  resetBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: borderRadius.pill,
+  resetButtonActive: {
+    borderColor: 'rgba(239, 68, 68, 0.45)',
     backgroundColor: 'rgba(239, 68, 68, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.25)',
   },
-  resetBtnActive: {
-    backgroundColor: 'rgba(239, 68, 68, 0.18)',
-    borderColor: 'rgba(239, 68, 68, 0.6)',
-  },
-  resetBtnText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#EF4444',
-    letterSpacing: 0.3,
-  },
-  resetCheckboxRow: {
+  resetMainAction: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingVertical: 4,
-    paddingHorizontal: 4,
+    paddingLeft: 8,
+    paddingRight: 10,
+  },
+  resetBtnText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#EF4444',
+    letterSpacing: 0.2,
+  },
+  resetDivider: {
+    width: 1,
+    height: 14,
+    backgroundColor: '#262938',
+  },
+  resetCheckboxAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 4,
+    paddingLeft: 10,
+    paddingRight: 8,
   },
   checkboxBox: {
-    width: 16,
-    height: 16,
+    width: 15,
+    height: 15,
     borderRadius: 4,
     borderWidth: 1.5,
-    borderColor: '#4A4D60',
-    backgroundColor: '#161720',
+    borderColor: '#4E5268',
+    backgroundColor: '#181A24',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -726,10 +725,13 @@ const styles = StyleSheet.create({
     borderColor: '#EF4444',
   },
   checkboxLabel: {
-    fontSize: 11.5,
-    fontWeight: '500',
+    fontSize: 11,
+    fontWeight: '600',
     color: colors.textSecondary,
     letterSpacing: 0.1,
+  },
+  checkboxLabelActive: {
+    color: '#EF4444',
   },
   modalCheckboxCard: {
     flexDirection: 'row',
