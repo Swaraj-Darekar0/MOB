@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,8 +7,11 @@ import {
   TouchableOpacity,
   Modal,
   Alert,
+  Animated,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { colors, spacing, borderRadius } from '../../theme';
 import { useAppStore } from '../../store/useAppStore';
@@ -28,9 +31,11 @@ import {
   AlertCircle,
   RotateCcw,
   AlertTriangle,
+  Check,
 } from 'lucide-react-native';
 
 export default function ProfileScreen() {
+  const router = useRouter();
   const {
     user,
     paymentTransactions,
@@ -38,12 +43,16 @@ export default function ProfileScreen() {
     envelopes,
     updateProfileImage,
     resetBucketsAndActivity,
+    resetDatabase,
   } = useAppStore();
   const [filter, setFilter] = useState<'all' | 'payments' | 'ledger'>('all');
   const [selectedTxn, setSelectedTxn] = useState<PaymentTransaction | null>(null);
   const [isUpdatingPhoto, setIsUpdatingPhoto] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [clearOnboarding, setClearOnboarding] = useState(false);
+  const [isFadingAway, setIsFadingAway] = useState(false);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const handleEditPhoto = async () => {
     try {
@@ -78,13 +87,35 @@ export default function ProfileScreen() {
   const handleConfirmReset = async () => {
     try {
       setIsResetting(true);
-      await resetBucketsAndActivity();
-      setShowResetConfirm(false);
-      Alert.alert('Reset Complete', 'All buckets and activity have been reset.');
+      if (clearOnboarding) {
+        setShowResetConfirm(false);
+        setIsFadingAway(true);
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 450,
+          useNativeDriver: true,
+        }).start(async () => {
+          try {
+            await resetDatabase();
+            // Small tick to ensure clean state propagation before navigating
+            setTimeout(() => {
+              router.replace('/(onboarding)/username');
+            }, 100);
+          } catch (err: any) {
+            setIsFadingAway(false);
+            setIsResetting(false);
+            Alert.alert('Reset Error', err.message || 'Failed to erase all data and reset onboarding.');
+          }
+        });
+      } else {
+        await resetBucketsAndActivity();
+        setShowResetConfirm(false);
+        setIsResetting(false);
+        Alert.alert('Reset Complete', 'All buckets and activity have been reset.');
+      }
     } catch (e: any) {
-      Alert.alert('Error', e.message || 'Failed to reset buckets and activity');
-    } finally {
       setIsResetting(false);
+      Alert.alert('Error', e.message || 'Failed to reset buckets and activity');
     }
   };
 
@@ -153,16 +184,35 @@ export default function ProfileScreen() {
           />
         </View>
 
-        {/* Reset Buckets & Activity Trigger */}
+        {/* Reset Action & Cache/Onboarding Checkbox */}
         <View style={styles.resetContainer}>
-          <TouchableOpacity
-            style={styles.resetBtn}
-            activeOpacity={0.7}
-            onPress={() => setShowResetConfirm(true)}
-          >
-            <RotateCcw size={13} color="#EF4444" strokeWidth={2.2} />
-            <Text style={styles.resetBtnText}>Reset Buckets & Activity</Text>
-          </TouchableOpacity>
+          <View style={styles.resetCard}>
+            <TouchableOpacity
+              style={[styles.resetBtn, clearOnboarding && styles.resetBtnActive]}
+              activeOpacity={0.7}
+              onPress={() => setShowResetConfirm(true)}
+            >
+              <RotateCcw size={13} color="#EF4444" strokeWidth={2.2} />
+              <Text style={styles.resetBtnText}>
+                {clearOnboarding ? 'Erase All & Reset App' : 'Reset Buckets & Activity'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Little Checkbox inside the Reset Button Section */}
+            <TouchableOpacity
+              style={styles.resetCheckboxRow}
+              activeOpacity={0.7}
+              onPress={() => setClearOnboarding((prev) => !prev)}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
+              <View style={[styles.checkboxBox, clearOnboarding && styles.checkboxBoxActive]}>
+                {clearOnboarding && <Check size={11} color="#FFFFFF" strokeWidth={3} />}
+              </View>
+              <Text style={styles.checkboxLabel}>
+                Clear cache & restart onboarding
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Activity Section directly below the card */}
@@ -344,14 +394,35 @@ export default function ProfileScreen() {
               <View style={styles.resetIconCircle}>
                 <AlertTriangle size={24} color="#EF4444" />
               </View>
-              <Text style={styles.resetModalTitle}>Reset Buckets & Activity?</Text>
+              <Text style={styles.resetModalTitle}>
+                {clearOnboarding ? 'Erase All & Restart Onboarding?' : 'Reset Buckets & Activity?'}
+              </Text>
               <Text style={styles.resetModalSubtitle}>
-                This will delete all your virtual buckets and clear your recent activity history.
-                All remaining allocated funds will be returned to your Unallocated Pool.
-                {'\n\n'}
-                Your profile photo and total tracked balance will be preserved.
+                {clearOnboarding
+                  ? 'All local data, cache, envelopes, transactions, balance snapshot, and onboarding profile will be permanently erased.\n\nAll data will fade away and you will start fresh from the onboarding screen.'
+                  : 'This will delete all your virtual buckets and clear your recent activity history. All remaining allocated funds will be returned to your Unallocated Pool.\n\nYour profile photo and total tracked balance will be preserved.'}
               </Text>
             </View>
+
+            {/* Checkbox inside the warning modal */}
+            <TouchableOpacity
+              style={[
+                styles.modalCheckboxCard,
+                clearOnboarding && styles.modalCheckboxCardActive,
+              ]}
+              activeOpacity={0.7}
+              onPress={() => setClearOnboarding((prev) => !prev)}
+            >
+              <View style={[styles.checkboxBox, clearOnboarding && styles.checkboxBoxActive]}>
+                {clearOnboarding && <Check size={12} color="#FFFFFF" strokeWidth={3} />}
+              </View>
+              <View style={styles.modalCheckboxTextCol}>
+                <Text style={styles.modalCheckboxTitle}>Clear cache & restart onboarding</Text>
+                <Text style={styles.modalCheckboxDesc}>
+                  Wipes all setup data so you can restart fresh from the welcome screen
+                </Text>
+              </View>
+            </TouchableOpacity>
 
             <View style={styles.resetActionsRow}>
               <Button
@@ -362,7 +433,7 @@ export default function ProfileScreen() {
                 style={{ flex: 1 }}
               />
               <Button
-                title="Reset Everything"
+                title={clearOnboarding ? 'Erase & Restart' : 'Reset Everything'}
                 variant="danger"
                 size="md"
                 loading={isResetting}
@@ -373,6 +444,28 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Full-Screen Fade-Away Transition Overlay */}
+      {isFadingAway && (
+        <Animated.View
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              backgroundColor: '#060606',
+              opacity: fadeAnim,
+              zIndex: 9999,
+              justifyContent: 'center',
+              alignItems: 'center',
+            },
+          ]}
+          pointerEvents="auto"
+        >
+          <ActivityIndicator size="small" color={colors.accent} />
+          <Text style={styles.fadeAwayText}>
+            Erasing cache & restarting onboarding...
+          </Text>
+        </Animated.View>
+      )}
     </SafeAreaView>
   );
 }
@@ -575,23 +668,99 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.xl,
     marginTop: -spacing.sm,
+    width: '100%',
+  },
+  resetCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#0F1014',
+    borderRadius: borderRadius.pill,
+    borderWidth: 1,
+    borderColor: '#1D1F28',
   },
   resetBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 5,
     borderRadius: borderRadius.pill,
     backgroundColor: 'rgba(239, 68, 68, 0.08)',
     borderWidth: 1,
     borderColor: 'rgba(239, 68, 68, 0.25)',
+  },
+  resetBtnActive: {
+    backgroundColor: 'rgba(239, 68, 68, 0.18)',
+    borderColor: 'rgba(239, 68, 68, 0.6)',
   },
   resetBtnText: {
     fontSize: 11,
     fontWeight: '700',
     color: '#EF4444',
     letterSpacing: 0.3,
+  },
+  resetCheckboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+  },
+  checkboxBox: {
+    width: 16,
+    height: 16,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: '#4A4D60',
+    backgroundColor: '#161720',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxBoxActive: {
+    backgroundColor: '#EF4444',
+    borderColor: '#EF4444',
+  },
+  checkboxLabel: {
+    fontSize: 11.5,
+    fontWeight: '500',
+    color: colors.textSecondary,
+    letterSpacing: 0.1,
+  },
+  modalCheckboxCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#161720',
+    borderWidth: 1,
+    borderColor: '#262835',
+    borderRadius: 12,
+    padding: 12,
+    width: '100%',
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  modalCheckboxCardActive: {
+    borderColor: 'rgba(239, 68, 68, 0.6)',
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+  },
+  modalCheckboxTextCol: {
+    flex: 1,
+  },
+  modalCheckboxTitle: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    marginBottom: 2,
+  },
+  modalCheckboxDesc: {
+    fontSize: 11,
+    color: colors.textTertiary,
+    lineHeight: 15,
   },
   resetModalContent: {
     width: '100%',
@@ -604,7 +773,7 @@ const styles = StyleSheet.create({
   },
   resetModalHeader: {
     alignItems: 'center',
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   resetIconCircle: {
     width: 48,
@@ -632,5 +801,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
     marginTop: spacing.md,
+  },
+  fadeAwayText: {
+    color: colors.textSecondary,
+    marginTop: 14,
+    fontSize: 13,
+    letterSpacing: 0.3,
+    fontWeight: '500',
   },
 });
