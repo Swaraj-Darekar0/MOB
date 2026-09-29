@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/images/banner.png" alt="MOB Banner" width="100%" />
+  <img src="assets/images/banner.png" alt="MOB Banner" width="90%" />
 </p>
 
 # MOB
