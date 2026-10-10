@@ -5,8 +5,16 @@ import {
   LedgerEvent,
   PaymentTransaction,
   PaymentStatus,
+  Transaction,
+  Account,
+  MerchantRule,
+  BalanceReconciliationResult,
+  SystemCategory,
 } from '../types';
 import * as database from '../services/db/database';
+import { processIncomingSms, IngestionResult } from '../services/sms/ingestion/smsIngestionService';
+import { reconcileBalance } from '../services/sms/reconciliation/balanceReconciler';
+import { toPaise } from '../utils/money';
 
 export interface EnvelopeAllocation {
   name: string;
@@ -27,6 +35,10 @@ export interface AppState {
   envelopes: Envelope[];
   ledgerEvents: LedgerEvent[];
   paymentTransactions: PaymentTransaction[];
+  transactions: Transaction[];
+  primaryAccount: Account | null;
+  reconciliationResult: BalanceReconciliationResult | null;
+  merchantRules: MerchantRule[];
   isLoading: boolean;
 
   // Actions
@@ -35,7 +47,9 @@ export interface AppState {
     username: string,
     startingBalance: number,
     envelopeAllocations: EnvelopeAllocation[],
-    avatarUri?: string
+    avatarUri?: string,
+    phoneNumber?: string,
+    source?: 'SMS_REPORTED' | 'MANUAL_INITIAL_BALANCE'
   ) => Promise<void>;
   updateProfileImage: (avatarUri: string) => Promise<void>;
   addMoney: (amount: number) => Promise<void>;
@@ -58,6 +72,14 @@ export interface AppState {
     status: PaymentStatus,
     responseDetails?: any
   ) => Promise<PaymentTransaction>;
+  ingestSmsMessage: (body: string, sender: string, timestamp?: number) => Promise<IngestionResult>;
+  reconcileTrackedBalance: () => Promise<BalanceReconciliationResult>;
+  teachMerchantRule: (
+    targetVpaOrMerchant: string,
+    envelopeId: string,
+    categoryId: SystemCategory,
+    isVpa?: boolean
+  ) => Promise<MerchantRule>;
   resetBucketsAndActivity: () => Promise<void>;
   resetDatabase: () => Promise<void>;
   verifyInvariant: () => {
@@ -75,16 +97,31 @@ function getUpdatedStoreState() {
   const envelopes = database.getEnvelopes();
   const ledgerEvents = database.getLedgerEvents();
   const paymentTransactions = database.getPaymentTransactions();
+  const transactions = database.getTransactions(50);
+  const primaryAccount = database.getPrimaryAccount();
+  const merchantRules = database.getMerchantRules();
   const unallocatedBalance = database.getUnallocatedBalance();
   const trackedBalance = snapshot ? snapshot.amount : 0;
   const allocatedBalance = envelopes.reduce((sum, env) => sum + env.currentAmount, 0);
   const isInitialized = !!user && !!snapshot;
+
+  const reconciliationResult = primaryAccount
+    ? reconcileBalance(
+        primaryAccount.trackedBalancePaise,
+        primaryAccount.lastReportedBalancePaise,
+        transactions
+      )
+    : null;
 
   return {
     user,
     envelopes,
     ledgerEvents,
     paymentTransactions,
+    transactions,
+    primaryAccount,
+    reconciliationResult,
+    merchantRules,
     unallocatedBalance,
     trackedBalance,
     allocatedBalance,
@@ -101,6 +138,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   envelopes: [],
   ledgerEvents: [],
   paymentTransactions: [],
+  transactions: [],
+  primaryAccount: null,
+  reconciliationResult: null,
+  merchantRules: [],
   isLoading: false,
 
   loadInitialData: async () => {
@@ -123,12 +164,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     username: string,
     startingBalance: number,
     envelopeAllocations: EnvelopeAllocation[],
-    avatarUri?: string
+    avatarUri?: string,
+    phoneNumber?: string,
+    source: 'SMS_REPORTED' | 'MANUAL_INITIAL_BALANCE' = 'MANUAL_INITIAL_BALANCE'
   ) => {
     set({ isLoading: true });
     try {
       // 1. Save or update user profile
       database.saveUserProfile(username, avatarUri);
+
+      if (phoneNumber) {
+        database.saveLocalProfile(phoneNumber);
+      }
+
+      // Save primary bank account
+      database.saveAccount({
+        id: 'primary_acc',
+        displayName: 'Primary Bank Account',
+        bankName: 'Bank',
+        currency: 'INR',
+        source,
+        initialBalancePaise: toPaise(startingBalance),
+        trackedBalancePaise: toPaise(startingBalance),
+        lastReportedBalancePaise: toPaise(startingBalance),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
 
       // 2. Immediately convert percentage allocations to fixed rupee amounts
       const allocations = envelopeAllocations.map((alloc) => {
@@ -328,6 +389,43 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.error('Failed to record payment result:', error);
       throw error;
     }
+  },
+
+  ingestSmsMessage: async (body: string, sender: string, timestamp?: number) => {
+    const result = processIncomingSms(body, sender, timestamp);
+    const updated = getUpdatedStoreState();
+    set({ ...updated });
+    return result;
+  },
+
+  reconcileTrackedBalance: async () => {
+    const primary = database.getPrimaryAccount();
+    const result = reconcileBalance(
+      primary.trackedBalancePaise,
+      primary.lastReportedBalancePaise,
+      get().transactions
+    );
+    set({ reconciliationResult: result });
+    return result;
+  },
+
+  teachMerchantRule: async (
+    targetVpaOrMerchant: string,
+    envelopeId: string,
+    categoryId: SystemCategory,
+    isVpa: boolean = false
+  ) => {
+    const rule = database.saveMerchantRule({
+      normalizedVpa: isVpa ? targetVpaOrMerchant.toLowerCase().trim() : undefined,
+      normalizedMerchant: !isVpa ? targetVpaOrMerchant.toLowerCase().trim() : undefined,
+      categoryId,
+      envelopeId,
+      source: 'USER_RULE',
+      priority: 10,
+    });
+    const updated = getUpdatedStoreState();
+    set({ ...updated });
+    return rule;
   },
 
   resetBucketsAndActivity: async () => {

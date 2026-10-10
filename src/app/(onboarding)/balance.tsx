@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,26 +6,48 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { colors, spacing } from '../../theme';
+import { colors, spacing, borderRadius } from '../../theme';
 import { Input } from '../../components/common/Input';
 import { Button } from '../../components/common/Button';
 import { WorkspaceTopStepper } from '../../components/ui/WorkspaceTopStepper';
-import { IndianRupee, ArrowRight, ArrowLeft } from 'lucide-react-native';
+import { IndianRupee, ArrowRight, ArrowLeft, Sparkles, Check, Edit3 } from 'lucide-react-native';
 
 const STEPS = [
-  { id: 1, label: 'Profile' },
-  { id: 2, label: 'Balance' },
-  { id: 3, label: 'Buckets' },
+  { id: 1, label: 'Identity' },
+  { id: 2, label: 'SMS Setup' },
+  { id: 3, label: 'Balance' },
+  { id: 4, label: 'Buckets' },
 ];
 
 export default function BalanceScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ username: string; avatarUri?: string }>();
-  const [balanceStr, setBalanceStr] = useState('');
+  const params = useLocalSearchParams<{
+    phoneNumber?: string;
+    detectedBalance?: string;
+    detectedBank?: string;
+    username?: string;
+    avatarUri?: string;
+  }>();
+
+  const [balanceStr, setBalanceStr] = useState(params.detectedBalance || '');
+  const [balanceSource, setBalanceSource] = useState<'SMS_REPORTED' | 'MANUAL_INITIAL_BALANCE'>(
+    params.detectedBalance ? 'SMS_REPORTED' : 'MANUAL_INITIAL_BALANCE'
+  );
+  const [isEditingDetected, setIsEditingDetected] = useState(!params.detectedBalance);
   const [error, setError] = useState('');
+
+  const detectedNum = params.detectedBalance ? parseFloat(params.detectedBalance) : 0;
+
+  const handleUseDetected = () => {
+    setBalanceStr(detectedNum.toString());
+    setBalanceSource('SMS_REPORTED');
+    setIsEditingDetected(false);
+    setError('');
+  };
 
   const handleContinue = () => {
     const cleanAmount = balanceStr.replace(/,/g, '').trim();
@@ -40,8 +62,10 @@ export default function BalanceScreen() {
     router.push({
       pathname: '/(onboarding)/allocation',
       params: {
-        username: params.username,
+        phoneNumber: params.phoneNumber,
+        username: params.username || 'User',
         startingBalance: amount.toString(),
+        balanceSource,
         avatarUri: params.avatarUri,
       },
     });
@@ -54,68 +78,105 @@ export default function BalanceScreen() {
         style={styles.keyboardView}
       >
         <ScrollView contentContainerStyle={styles.container}>
-          {/* Stepper with step 1 completed and step 2 active */}
-          <WorkspaceTopStepper
-            steps={STEPS}
-            currentStep={2}
-            onStepPress={(id) => {
-              if (id === 1) router.back();
-            }}
-          />
+          <WorkspaceTopStepper steps={STEPS} currentStep={3} />
 
-          <View>
-            <View style={styles.navRow}>
-              <Button
-                title="Back"
-                variant="ghost"
-                size="sm"
-                onPress={() => router.back()}
-                icon={<ArrowLeft size={16} color={colors.textSecondary} />}
-              />
-            </View>
-
-            <Text style={styles.title}>Tracked Bank Balance</Text>
-            <Text style={styles.description}>
-              Enter your current available balance. This serves as the pool divided among your virtual envelopes.
+          <View style={styles.header}>
+            <Text style={styles.title}>Starting Bank Balance</Text>
+            <Text style={styles.subtitle}>
+              Set the total bank balance you wish to track. The app will distribute this across your virtual buckets.
             </Text>
           </View>
 
-          <View style={styles.form}>
-            <Input
-              label="Available Balance (₹)"
-              placeholder="e.g. 50000"
-              value={balanceStr}
-              onChangeText={(text) => {
-                setBalanceStr(text);
-                if (error) setError('');
-              }}
-              keyboardType="numeric"
-              error={error}
-              leftIcon={<IndianRupee size={20} color={colors.accent} />}
-              helperText="MOB maintains a strict local ledger and never links your bank credentials."
-            />
+          {/* Detected SMS Balance Card */}
+          {params.detectedBalance && detectedNum > 0 && !isEditingDetected && (
+            <View style={styles.detectedCard}>
+              <View style={styles.detectedHeader}>
+                <Sparkles size={16} color={colors.accent} />
+                <Text style={styles.detectedTag}>
+                  Latest SMS Detected ({params.detectedBank || 'Bank'})
+                </Text>
+              </View>
 
-            <View style={styles.quickPills}>
-              {[10000, 25000, 50000, 100000].map((preset) => (
-                <Button
-                  key={preset}
-                  title={`₹${preset.toLocaleString('en-IN')}`}
-                  variant="secondary"
-                  size="sm"
-                  onPress={() => setBalanceStr(preset.toString())}
-                  style={styles.pill}
-                />
-              ))}
+              <Text style={styles.detectedAmount}>
+                ₹{detectedNum.toLocaleString('en-IN')}
+              </Text>
+              <Text style={styles.detectedSubtext}>
+                Reported balance from your latest verified transaction SMS. Never called a live bank balance.
+              </Text>
+
+              <View style={styles.detectedActions}>
+                <TouchableOpacity
+                  style={styles.detectedUseBtn}
+                  onPress={handleContinue}
+                >
+                  <Check size={16} color={colors.textPrimary} />
+                  <Text style={styles.detectedUseBtnText}>Use as Starting Balance</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.detectedEditBtn}
+                  onPress={() => {
+                    setIsEditingDetected(true);
+                    setBalanceSource('MANUAL_INITIAL_BALANCE');
+                  }}
+                >
+                  <Edit3 size={14} color={colors.textSecondary} />
+                  <Text style={styles.detectedEditBtnText}>Edit Manually</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          )}
+
+          {/* Manual Entry Form */}
+          {(isEditingDetected || !params.detectedBalance) && (
+            <View style={styles.form}>
+              <Input
+                label="Tracked Balance (₹)"
+                placeholder="e.g. 40,000"
+                keyboardType="numeric"
+                value={balanceStr}
+                onChangeText={(text) => {
+                  setBalanceStr(text);
+                  setBalanceSource('MANUAL_INITIAL_BALANCE');
+                  if (error) setError('');
+                }}
+                error={error}
+                leftIcon={<IndianRupee size={20} color={colors.accent} />}
+              />
+
+              {params.detectedBalance && (
+                <TouchableOpacity
+                  style={styles.revertBtn}
+                  onPress={handleUseDetected}
+                >
+                  <Text style={styles.revertBtnText}>
+                    ← Switch back to detected ₹{detectedNum.toLocaleString('en-IN')}
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+              <View style={styles.infoBox}>
+                <Text style={styles.infoText}>
+                  Your bank balance remains safely in your bank account. Virtual envelopes only manage how you allocate and budget your spending on-device.
+                </Text>
+              </View>
+            </View>
+          )}
 
           <View style={styles.footer}>
             <Button
-              title="Continue to Allocation"
-              variant="accent"
-              size="lg"
+              title="Back"
+              onPress={() => router.back()}
+              variant="secondary"
+              icon={<ArrowLeft size={18} color={colors.textPrimary} />}
+              style={styles.backButton}
+            />
+            <Button
+              title="Continue"
               onPress={handleContinue}
+              variant="primary"
               icon={<ArrowRight size={18} color={colors.accentDark} />}
+              style={styles.continueButton}
             />
           </View>
         </ScrollView>
@@ -134,41 +195,121 @@ const styles = StyleSheet.create({
   },
   container: {
     flexGrow: 1,
-    padding: spacing.xxl,
+    padding: spacing.md,
     justifyContent: 'space-between',
   },
-  navRow: {
-    alignItems: 'flex-start',
-    marginBottom: spacing.xs,
-    marginLeft: -spacing.sm,
+  header: {
+    marginVertical: spacing.lg,
   },
   title: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: '700',
     color: colors.textPrimary,
-    letterSpacing: -0.5,
     marginBottom: spacing.xs,
   },
-  description: {
-    fontSize: 15,
+  subtitle: {
+    fontSize: 14,
     color: colors.textSecondary,
-    lineHeight: 22,
-    marginBottom: spacing.xl,
+    lineHeight: 20,
+  },
+  detectedCard: {
+    backgroundColor: colors.surfaceRaised,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(58, 130, 238, 0.3)',
+    marginBottom: spacing.lg,
+  },
+  detectedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  detectedTag: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.accent,
+    textTransform: 'uppercase',
+  },
+  detectedAmount: {
+    fontSize: 34,
+    fontWeight: '800',
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  detectedSubtext: {
+    fontSize: 12,
+    color: colors.textTertiary,
+    lineHeight: 18,
+    marginBottom: spacing.lg,
+  },
+  detectedActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  detectedUseBtn: {
+    flex: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.accent,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.md,
+  },
+  detectedUseBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  detectedEditBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.md,
+  },
+  detectedEditBtnText: {
+    fontSize: 12,
+    color: colors.textSecondary,
   },
   form: {
     flex: 1,
-    justifyContent: 'center',
   },
-  quickPills: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
+  revertBtn: {
+    marginTop: spacing.xs,
+    marginBottom: spacing.md,
+  },
+  revertBtnText: {
+    fontSize: 12,
+    color: colors.accent,
+  },
+  infoBox: {
+    backgroundColor: colors.surfaceRaised,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
     marginTop: spacing.md,
   },
-  pill: {
-    paddingHorizontal: spacing.md,
+  infoText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
   },
   footer: {
-    paddingVertical: spacing.lg,
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginTop: spacing.xl,
+  },
+  backButton: {
+    flex: 1,
+  },
+  continueButton: {
+    flex: 2,
   },
 });

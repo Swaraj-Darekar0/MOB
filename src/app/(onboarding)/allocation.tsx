@@ -45,6 +45,8 @@ export default function AllocationScreen() {
     username: string;
     startingBalance: string;
     avatarUri?: string;
+    phoneNumber?: string;
+    balanceSource?: 'SMS_REPORTED' | 'MANUAL_INITIAL_BALANCE';
   }>();
   const startingBalance = parseFloat(params.startingBalance || '0');
   const username = params.username || 'User';
@@ -110,7 +112,14 @@ export default function AllocationScreen() {
       });
 
       // 1. Commit to database and store
-      await completeOnboarding(username, startingBalance, allocations, params.avatarUri);
+      await completeOnboarding(
+        username,
+        startingBalance,
+        allocations,
+        params.avatarUri,
+        params.phoneNumber,
+        params.balanceSource
+      );
 
       // 2. Launch Combo Sequence (Decrypted text on `Hola "{username}"` + Geometric Preloader)
       setShowComboSequence(true);

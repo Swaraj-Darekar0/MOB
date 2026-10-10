@@ -110,66 +110,7 @@ export function generateTransactionRef(prefix = 'V1'): string {
   return `${prefix}${timestamp}${randomSuffix}`.slice(0, 30);
 }
 
-/**
- * Constructs a standard UPI payment URI (`upi://pay?...`).
- * Formats amount to 2 decimal places and properly encodes all query components.
- *
- * Intelligent tr Stripping:
- * - For Merchant QRs (mc present and not '0000'): passes tr, mc, mid, sid, tid.
- * - For Personal QRs (P2P): omits tr and merchant flags completely, constructing a pure P2P URI.
- */
-export function buildUPIUri(params: {
-  pa: string;
-  pn?: string;
-  am: number;
-  tr?: string;
-  tn?: string;
-  mc?: string;
-  mid?: string;
-  sid?: string;
-  tid?: string;
-  url?: string;
-}): string {
-  const queryParts: string[] = [];
-  queryParts.push(`pa=${encodeURIComponent(params.pa)}`);
-  if (params.pn) {
-    queryParts.push(`pn=${encodeURIComponent(params.pn)}`);
-  }
-
-  // Intelligent Merchant vs P2P distinction using deterministic VPA Classification Engine:
-  const classification = classifyUPIPayment({
-    payeeVpa: params.pa,
-    merchantCode: params.mc,
-    merchantId: params.mid,
-    storeId: params.sid,
-    terminalId: params.tid,
-  });
-  const isMerchant = classification.isMerchant;
-
-  if (isMerchant) {
-    if (params.mc) queryParts.push(`mc=${encodeURIComponent(params.mc)}`);
-    if (params.mid) queryParts.push(`mid=${encodeURIComponent(params.mid)}`);
-    if (params.sid) queryParts.push(`sid=${encodeURIComponent(params.sid)}`);
-    if (params.tid) queryParts.push(`tid=${encodeURIComponent(params.tid)}`);
-  }
-
-  queryParts.push(`am=${encodeURIComponent(params.am.toFixed(2))}`);
-  queryParts.push('cu=INR');
-
-  // Intelligent tr Stripping:
-  // Only include tr for merchant transactions. Personal QRs omit tr to prevent merchant order validation errors.
-  if (isMerchant && params.tr) {
-    queryParts.push(`tr=${encodeURIComponent(params.tr)}`);
-  }
-
-  if (params.tn) {
-    queryParts.push(`tn=${encodeURIComponent(params.tn)}`);
-  }
-  if (params.url) {
-    queryParts.push(`url=${encodeURIComponent(params.url)}`);
-  }
-  return `upi://pay?${queryParts.join('&')}`;
-}
+export { buildUPIUri } from './uriBuilder';
 
 /**
  * Checks whether the specified UPI app or any UPI handler is available on the device.
@@ -820,7 +761,21 @@ export async function launchFirstPartyUPIApp(targetApp: UPIAppTarget = 'gpay'): 
     );
   }
 
-  // 4. Fallback: try app-specific scheme (e.g., phonepe://, paytmmp://) ONLY if distinct from generic upi://
+  // 4. Fallback: try targeted VIEW intent with package name (UPI handler)
+  try {
+    await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+      packageName,
+      data: 'upi://pay',
+    });
+    return true;
+  } catch (viewIntentError: any) {
+    console.warn(
+      `[PaymentService] Targeted VIEW intent failed for ${appConfig.name}:`,
+      viewIntentError?.message
+    );
+  }
+
+  // 5. Fallback: try app-specific scheme (e.g., phonepe://, paytmmp://) ONLY if distinct from generic upi://
   const schemeStr: string | undefined = appConfig.scheme;
   if (schemeStr && schemeStr !== 'upi://' && schemeStr !== 'upi://pay') {
     try {
@@ -834,7 +789,7 @@ export async function launchFirstPartyUPIApp(targetApp: UPIAppTarget = 'gpay'): 
     }
   }
 
-  // 5. If the app is not installed, open the Play Store for that specific app
+  // 6. If the app is genuinely not installed, open the Play Store for that specific app
   await openAppStore(targetApp);
   return false;
 }

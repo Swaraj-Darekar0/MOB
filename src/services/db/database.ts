@@ -1,13 +1,22 @@
 import * as SQLite from 'expo-sqlite';
 import {
   UserProfile,
+  LocalProfile,
   BalanceSnapshot,
   Envelope,
   LedgerEvent,
   LedgerEventType,
   PaymentStatus,
   PaymentTransaction,
+  Account,
+  Transaction,
+  TransactionMessage,
+  PaymentAttempt,
+  MerchantRule,
+  CategoryRule,
+  MoneyPaise,
 } from '../../types';
+import { toPaise, toRupees } from '../../utils/money';
 
 export function roundAmount(val: number): number {
   return Math.round(val * 100) / 100;
@@ -94,7 +103,111 @@ export function initDatabase(): void {
       createdAt TEXT NOT NULL,
       completedAt TEXT
     );
+    CREATE TABLE IF NOT EXISTS profile (
+      id TEXT PRIMARY KEY,
+      phone_number TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS accounts (
+      id TEXT PRIMARY KEY,
+      display_name TEXT NOT NULL,
+      bank_name TEXT NOT NULL,
+      account_last4 TEXT,
+      currency TEXT DEFAULT 'INR',
+      source TEXT NOT NULL,
+      initial_balance_paise INTEGER NOT NULL,
+      tracked_balance_paise INTEGER NOT NULL,
+      last_reported_balance_paise INTEGER,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS transactions (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      amount_paise INTEGER NOT NULL,
+      currency TEXT DEFAULT 'INR',
+      merchant_name TEXT,
+      payee_vpa TEXT,
+      raw_narration TEXT,
+      category_id TEXT,
+      envelope_id TEXT,
+      reference_id TEXT,
+      upi_txn_id TEXT,
+      account_last4 TEXT,
+      balance_after_paise INTEGER,
+      bank_name TEXT,
+      channel TEXT NOT NULL,
+      source TEXT NOT NULL,
+      confidence REAL,
+      occurred_at TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS transaction_messages (
+      id TEXT PRIMARY KEY,
+      transaction_id TEXT NOT NULL,
+      sender TEXT NOT NULL,
+      message_hash TEXT NOT NULL UNIQUE,
+      received_at TEXT NOT NULL,
+      parser_version TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS payment_attempts (
+      id TEXT PRIMARY KEY,
+      envelope_id TEXT NOT NULL,
+      requested_amount_paise INTEGER NOT NULL,
+      payee_name TEXT,
+      payee_vpa TEXT NOT NULL,
+      qr_payload TEXT,
+      transaction_ref TEXT NOT NULL,
+      upi_txn_id TEXT,
+      approval_ref_no TEXT,
+      response_code TEXT,
+      returned_amount_paise INTEGER,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS merchant_rules (
+      id TEXT PRIMARY KEY,
+      normalized_merchant TEXT,
+      normalized_vpa TEXT,
+      category_id TEXT NOT NULL,
+      envelope_id TEXT,
+      source TEXT NOT NULL,
+      priority INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS category_rules (
+      id TEXT PRIMARY KEY,
+      pattern TEXT NOT NULL,
+      match_type TEXT NOT NULL,
+      category_id TEXT NOT NULL,
+      priority INTEGER NOT NULL DEFAULT 0,
+      enabled INTEGER NOT NULL DEFAULT 1
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_id);
+    CREATE INDEX IF NOT EXISTS idx_transactions_occurred ON transactions(occurred_at);
+    CREATE INDEX IF NOT EXISTS idx_transactions_ref ON transactions(reference_id);
+    CREATE INDEX IF NOT EXISTS idx_messages_hash ON transaction_messages(message_hash);
+    CREATE INDEX IF NOT EXISTS idx_payment_attempts_ref ON payment_attempts(transaction_ref);
+    CREATE INDEX IF NOT EXISTS idx_merchant_rules_vpa ON merchant_rules(normalized_vpa);
+    CREATE INDEX IF NOT EXISTS idx_merchant_rules_merchant ON merchant_rules(normalized_merchant);
   `);
+
+  try {
+    db.execSync('ALTER TABLE users ADD COLUMN phoneNumber TEXT;');
+  } catch (e) {
+    // Column may already exist
+  }
 
   try {
     db.execSync('ALTER TABLE users ADD COLUMN avatarUri TEXT;');
@@ -110,6 +223,12 @@ export function initDatabase(): void {
 
   try {
     db.execSync('ALTER TABLE envelopes ADD COLUMN allocatedAmount REAL DEFAULT 0;');
+  } catch (e) {
+    // Column may already exist
+  }
+
+  try {
+    db.execSync('ALTER TABLE envelopes ADD COLUMN isUnallocated INTEGER DEFAULT 0;');
   } catch (e) {
     // Column may already exist
   }
@@ -1088,3 +1207,576 @@ export function recordManualSpend(
     completedAt: now,
   };
 }
+
+// -------------------------------------------------------------
+// Local Profile (Phone Profile) Helpers
+// -------------------------------------------------------------
+
+export function getLocalProfile(): LocalProfile | null {
+  const row = db.getFirstSync<{ id: string; phone_number: string; created_at: string }>(
+    'SELECT id, phone_number, created_at FROM profile LIMIT 1'
+  );
+  if (!row) return null;
+  return {
+    id: row.id,
+    phoneNumber: row.phone_number,
+    createdAt: row.created_at,
+  };
+}
+
+export function saveLocalProfile(phoneNumber: string): LocalProfile {
+  const existing = getLocalProfile();
+  const now = new Date().toISOString();
+  const cleanedPhone = phoneNumber.trim();
+
+  if (existing) {
+    db.runSync(
+      'UPDATE profile SET phone_number = ?, updated_at = ? WHERE id = ?',
+      [cleanedPhone, now, existing.id]
+    );
+    try {
+      db.runSync('UPDATE users SET phoneNumber = ?', [cleanedPhone]);
+    } catch {
+      // ignore
+    }
+    return {
+      ...existing,
+      phoneNumber: cleanedPhone,
+    };
+  } else {
+    const newProfile: LocalProfile = {
+      id: generateId('profile'),
+      phoneNumber: cleanedPhone,
+      createdAt: now,
+    };
+    db.runSync(
+      'INSERT INTO profile (id, phone_number, created_at, updated_at) VALUES (?, ?, ?, ?)',
+      [newProfile.id, newProfile.phoneNumber, newProfile.createdAt, now]
+    );
+    try {
+      db.runSync('UPDATE users SET phoneNumber = ?', [cleanedPhone]);
+    } catch {
+      // ignore
+    }
+    return newProfile;
+  }
+}
+
+// -------------------------------------------------------------
+// Accounts Helpers (Multi-Bank Account Tracking)
+// -------------------------------------------------------------
+
+export function getAccount(id?: string): Account | null {
+  const query = id
+    ? 'SELECT * FROM accounts WHERE id = ? LIMIT 1'
+    : 'SELECT * FROM accounts ORDER BY created_at ASC LIMIT 1';
+  const params = id ? [id] : [];
+  const row = db.getFirstSync<any>(query, params);
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    displayName: row.display_name,
+    bankName: row.bank_name,
+    accountLast4: row.account_last4 || undefined,
+    currency: row.currency || 'INR',
+    source: row.source,
+    initialBalancePaise: row.initial_balance_paise,
+    trackedBalancePaise: row.tracked_balance_paise,
+    lastReportedBalancePaise: row.last_reported_balance_paise ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function getPrimaryAccount(): Account {
+  const existing = getAccount();
+  if (existing) return existing;
+
+  // Fallback: create default primary account from balance snapshot if available
+  const snapshot = getBalanceSnapshot();
+  const initialPaise = snapshot ? toPaise(snapshot.amount) : 0;
+  const now = new Date().toISOString();
+  const newAccount: Account = {
+    id: 'primary_acc',
+    displayName: 'Primary Bank Account',
+    bankName: 'Bank',
+    currency: 'INR',
+    source: 'MANUAL_INITIAL_BALANCE',
+    initialBalancePaise: initialPaise,
+    trackedBalancePaise: initialPaise,
+    lastReportedBalancePaise: initialPaise,
+    createdAt: now,
+    updatedAt: now,
+  };
+  saveAccount(newAccount);
+  return newAccount;
+}
+
+export function saveAccount(account: Account): Account {
+  const now = new Date().toISOString();
+  db.runSync(
+    `INSERT OR REPLACE INTO accounts (
+      id, display_name, bank_name, account_last4, currency,
+      source, initial_balance_paise, tracked_balance_paise,
+      last_reported_balance_paise, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      account.id,
+      account.displayName,
+      account.bankName,
+      account.accountLast4 || null,
+      account.currency || 'INR',
+      account.source,
+      account.initialBalancePaise,
+      account.trackedBalancePaise,
+      account.lastReportedBalancePaise ?? null,
+      account.createdAt || now,
+      now,
+    ]
+  );
+  return account;
+}
+
+export function updateAccountBalances(
+  id: string,
+  trackedBalancePaise: MoneyPaise,
+  lastReportedBalancePaise?: MoneyPaise
+): void {
+  const now = new Date().toISOString();
+  if (lastReportedBalancePaise !== undefined) {
+    db.runSync(
+      `UPDATE accounts SET tracked_balance_paise = ?, last_reported_balance_paise = ?, updated_at = ? WHERE id = ?`,
+      [trackedBalancePaise, lastReportedBalancePaise, now, id]
+    );
+  } else {
+    db.runSync(
+      `UPDATE accounts SET tracked_balance_paise = ?, updated_at = ? WHERE id = ?`,
+      [trackedBalancePaise, now, id]
+    );
+  }
+}
+
+// -------------------------------------------------------------
+// Transactions Helpers (Unified Financial Ledger)
+// -------------------------------------------------------------
+
+export function insertTransaction(tx: Transaction): Transaction {
+  const now = new Date().toISOString();
+  db.runSync(
+    `INSERT OR REPLACE INTO transactions (
+      id, account_id, type, amount_paise, currency,
+      merchant_name, payee_vpa, raw_narration, category_id,
+      envelope_id, reference_id, upi_txn_id, account_last4,
+      balance_after_paise, bank_name, channel, source,
+      confidence, occurred_at, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      tx.id,
+      tx.accountId,
+      tx.type,
+      tx.amountPaise,
+      tx.currency || 'INR',
+      tx.merchantName || null,
+      tx.payeeVpa || null,
+      tx.rawNarration || null,
+      tx.categoryId || null,
+      tx.envelopeId || null,
+      tx.referenceId || null,
+      tx.upiTxnId || null,
+      tx.accountLast4 || null,
+      tx.balanceAfterPaise ?? null,
+      tx.bankName || null,
+      tx.channel,
+      tx.source,
+      tx.confidence ?? null,
+      tx.occurredAt || now,
+      tx.createdAt || now,
+    ]
+  );
+  return tx;
+}
+
+export function getTransactions(limit: number = 50): Transaction[] {
+  const rows = db.getAllSync<any>(
+    'SELECT * FROM transactions ORDER BY occurred_at DESC LIMIT ?',
+    [limit]
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    accountId: r.account_id,
+    type: r.type,
+    amountPaise: r.amount_paise,
+    currency: r.currency,
+    merchantName: r.merchant_name || undefined,
+    payeeVpa: r.payee_vpa || undefined,
+    rawNarration: r.raw_narration || undefined,
+    categoryId: r.category_id || undefined,
+    envelopeId: r.envelope_id || undefined,
+    referenceId: r.reference_id || undefined,
+    upiTxnId: r.upi_txn_id || undefined,
+    accountLast4: r.account_last4 || undefined,
+    balanceAfterPaise: r.balance_after_paise ?? undefined,
+    bankName: r.bank_name || undefined,
+    channel: r.channel,
+    source: r.source,
+    confidence: r.confidence ?? undefined,
+    occurredAt: r.occurred_at,
+    createdAt: r.created_at,
+  }));
+}
+
+export function getTransactionById(id: string): Transaction | null {
+  const r = db.getFirstSync<any>('SELECT * FROM transactions WHERE id = ?', [id]);
+  if (!r) return null;
+  return {
+    id: r.id,
+    accountId: r.account_id,
+    type: r.type,
+    amountPaise: r.amount_paise,
+    currency: r.currency,
+    merchantName: r.merchant_name || undefined,
+    payeeVpa: r.payee_vpa || undefined,
+    rawNarration: r.raw_narration || undefined,
+    categoryId: r.category_id || undefined,
+    envelopeId: r.envelope_id || undefined,
+    referenceId: r.reference_id || undefined,
+    upiTxnId: r.upi_txn_id || undefined,
+    accountLast4: r.account_last4 || undefined,
+    balanceAfterPaise: r.balance_after_paise ?? undefined,
+    bankName: r.bank_name || undefined,
+    channel: r.channel,
+    source: r.source,
+    confidence: r.confidence ?? undefined,
+    occurredAt: r.occurred_at,
+    createdAt: r.created_at,
+  };
+}
+
+export function findTransactionByReference(refId: string): Transaction | null {
+  if (!refId || !db) return null;
+  const r = db.getFirstSync<any>(
+    'SELECT * FROM transactions WHERE reference_id = ? OR upi_txn_id = ? LIMIT 1',
+    [refId, refId]
+  );
+  if (!r) return null;
+  return {
+    id: r.id,
+    accountId: r.account_id,
+    type: r.type,
+    amountPaise: r.amount_paise,
+    currency: r.currency,
+    merchantName: r.merchant_name || undefined,
+    payeeVpa: r.payee_vpa || undefined,
+    rawNarration: r.raw_narration || undefined,
+    categoryId: r.category_id || undefined,
+    envelopeId: r.envelope_id || undefined,
+    referenceId: r.reference_id || undefined,
+    upiTxnId: r.upi_txn_id || undefined,
+    accountLast4: r.account_last4 || undefined,
+    balanceAfterPaise: r.balance_after_paise ?? undefined,
+    bankName: r.bank_name || undefined,
+    channel: r.channel,
+    source: r.source,
+    confidence: r.confidence ?? undefined,
+    occurredAt: r.occurred_at,
+    createdAt: r.created_at,
+  };
+}
+
+export function updateTransactionEnvelope(
+  transactionId: string,
+  envelopeId: string,
+  categoryId?: string
+): void {
+  if (categoryId) {
+    db.runSync(
+      'UPDATE transactions SET envelope_id = ?, category_id = ? WHERE id = ?',
+      [envelopeId, categoryId, transactionId]
+    );
+  } else {
+    db.runSync('UPDATE transactions SET envelope_id = ? WHERE id = ?', [
+      envelopeId,
+      transactionId,
+    ]);
+  }
+}
+
+// -------------------------------------------------------------
+// Transaction Messages (SMS Ingestion & Deduplication)
+// -------------------------------------------------------------
+
+export function insertTransactionMessage(msg: TransactionMessage): TransactionMessage {
+  db.runSync(
+    `INSERT OR REPLACE INTO transaction_messages (
+      id, transaction_id, sender, message_hash, received_at, parser_version
+    ) VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      msg.id,
+      msg.transactionId,
+      msg.sender,
+      msg.messageHash,
+      msg.receivedAt,
+      msg.parserVersion,
+    ]
+  );
+  return msg;
+}
+
+export function hasTransactionMessageHash(messageHash: string): boolean {
+  if (!messageHash || !db) return false;
+  const row = db.getFirstSync<{ count: number }>(
+    'SELECT COUNT(*) as count FROM transaction_messages WHERE message_hash = ?',
+    [messageHash]
+  );
+  return !!(row && row.count > 0);
+}
+
+// -------------------------------------------------------------
+// Payment Attempts (3-Signal Google Pay State Machine)
+// -------------------------------------------------------------
+
+export function insertPaymentAttempt(attempt: PaymentAttempt): PaymentAttempt {
+  const now = new Date().toISOString();
+  db.runSync(
+    `INSERT OR REPLACE INTO payment_attempts (
+      id, envelope_id, requested_amount_paise, payee_name,
+      payee_vpa, qr_payload, transaction_ref, upi_txn_id,
+      approval_ref_no, response_code, returned_amount_paise,
+      status, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      attempt.id,
+      attempt.envelopeId,
+      attempt.requestedAmountPaise,
+      attempt.payeeName || null,
+      attempt.payeeVpa,
+      attempt.qrPayload || null,
+      attempt.transactionRef,
+      attempt.upiTxnId || null,
+      attempt.approvalRefNo || null,
+      attempt.responseCode || null,
+      attempt.returnedAmountPaise ?? null,
+      attempt.status,
+      attempt.createdAt || now,
+      now,
+    ]
+  );
+  return attempt;
+}
+
+export function updatePaymentAttempt(
+  id: string,
+  updates: Partial<PaymentAttempt>
+): PaymentAttempt | null {
+  const current = getPaymentAttemptById(id);
+  if (!current) return null;
+
+  const updated: PaymentAttempt = {
+    ...current,
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  };
+
+  db.runSync(
+    `UPDATE payment_attempts SET
+      status = ?, upi_txn_id = ?, approval_ref_no = ?,
+      response_code = ?, returned_amount_paise = ?, updated_at = ?
+    WHERE id = ?`,
+    [
+      updated.status,
+      updated.upiTxnId || null,
+      updated.approvalRefNo || null,
+      updated.responseCode || null,
+      updated.returnedAmountPaise ?? null,
+      updated.updatedAt,
+      id,
+    ]
+  );
+
+  return updated;
+}
+
+export function getPaymentAttemptById(id: string): PaymentAttempt | null {
+  const r = db.getFirstSync<any>('SELECT * FROM payment_attempts WHERE id = ?', [id]);
+  if (!r) return null;
+  return {
+    id: r.id,
+    envelopeId: r.envelope_id,
+    requestedAmountPaise: r.requested_amount_paise,
+    payeeName: r.payee_name || undefined,
+    payeeVpa: r.payee_vpa,
+    qrPayload: r.qr_payload || undefined,
+    transactionRef: r.transaction_ref,
+    upiTxnId: r.upi_txn_id || undefined,
+    approvalRefNo: r.approval_ref_no || undefined,
+    responseCode: r.response_code || undefined,
+    returnedAmountPaise: r.returned_amount_paise ?? undefined,
+    status: r.status,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+export function getPendingPaymentAttempts(): PaymentAttempt[] {
+  const rows = db.getAllSync<any>(
+    "SELECT * FROM payment_attempts WHERE status IN ('INITIATED', 'SUBMITTED') ORDER BY created_at DESC"
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    envelopeId: r.envelope_id,
+    requestedAmountPaise: r.requested_amount_paise,
+    payeeName: r.payee_name || undefined,
+    payeeVpa: r.payee_vpa,
+    qrPayload: r.qr_payload || undefined,
+    transactionRef: r.transaction_ref,
+    upiTxnId: r.upi_txn_id || undefined,
+    approvalRefNo: r.approval_ref_no || undefined,
+    responseCode: r.response_code || undefined,
+    returnedAmountPaise: r.returned_amount_paise ?? undefined,
+    status: r.status,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }));
+}
+
+// -------------------------------------------------------------
+// Merchant & Category Rules (User Corrections & Engine)
+// -------------------------------------------------------------
+
+export function getMerchantRules(): MerchantRule[] {
+  const rows = db.getAllSync<any>(
+    'SELECT * FROM merchant_rules ORDER BY priority DESC, created_at DESC'
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    normalizedMerchant: r.normalized_merchant || undefined,
+    normalizedVpa: r.normalized_vpa || undefined,
+    categoryId: r.category_id,
+    envelopeId: r.envelope_id || undefined,
+    source: r.source,
+    priority: r.priority,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }));
+}
+
+export function saveMerchantRule(
+  rule: Omit<MerchantRule, 'id' | 'createdAt' | 'updatedAt'>
+): MerchantRule {
+  const now = new Date().toISOString();
+  const id = generateId('rule_merch');
+  const fullRule: MerchantRule = {
+    ...rule,
+    id,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  db.runSync(
+    `INSERT INTO merchant_rules (
+      id, normalized_merchant, normalized_vpa, category_id,
+      envelope_id, source, priority, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      fullRule.id,
+      fullRule.normalizedMerchant || null,
+      fullRule.normalizedVpa || null,
+      fullRule.categoryId,
+      fullRule.envelopeId || null,
+      fullRule.source,
+      fullRule.priority,
+      fullRule.createdAt,
+      fullRule.updatedAt,
+    ]
+  );
+  return fullRule;
+}
+
+export function findMerchantRule(
+  normalizedVpa?: string,
+  normalizedMerchant?: string
+): MerchantRule | null {
+  if (!db) return null;
+
+  if (normalizedVpa) {
+    const vpaRule = db.getFirstSync<any>(
+      'SELECT * FROM merchant_rules WHERE normalized_vpa = ? ORDER BY priority DESC, created_at DESC LIMIT 1',
+      [normalizedVpa]
+    );
+    if (vpaRule) {
+      return {
+        id: vpaRule.id,
+        normalizedMerchant: vpaRule.normalized_merchant || undefined,
+        normalizedVpa: vpaRule.normalized_vpa || undefined,
+        categoryId: vpaRule.category_id,
+        envelopeId: vpaRule.envelope_id || undefined,
+        source: vpaRule.source,
+        priority: vpaRule.priority,
+        createdAt: vpaRule.created_at,
+        updatedAt: vpaRule.updated_at,
+      };
+    }
+  }
+
+  if (normalizedMerchant) {
+    const merchantRule = db.getFirstSync<any>(
+      'SELECT * FROM merchant_rules WHERE normalized_merchant = ? ORDER BY priority DESC, created_at DESC LIMIT 1',
+      [normalizedMerchant]
+    );
+    if (merchantRule) {
+      return {
+        id: merchantRule.id,
+        normalizedMerchant: merchantRule.normalized_merchant || undefined,
+        normalizedVpa: merchantRule.normalized_vpa || undefined,
+        categoryId: merchantRule.category_id,
+        envelopeId: merchantRule.envelope_id || undefined,
+        source: merchantRule.source,
+        priority: merchantRule.priority,
+        createdAt: merchantRule.created_at,
+        updatedAt: merchantRule.updated_at,
+      };
+    }
+  }
+
+  return null;
+}
+
+export function getCategoryRules(): CategoryRule[] {
+  const rows = db.getAllSync<any>(
+    'SELECT * FROM category_rules WHERE enabled = 1 ORDER BY priority DESC'
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    pattern: r.pattern,
+    matchType: r.match_type,
+    categoryId: r.category_id,
+    priority: r.priority,
+    enabled: !!r.enabled,
+  }));
+}
+
+export function saveCategoryRule(
+  rule: Omit<CategoryRule, 'id'>
+): CategoryRule {
+  const id = generateId('rule_cat');
+  const fullRule: CategoryRule = {
+    ...rule,
+    id,
+  };
+
+  db.runSync(
+    `INSERT INTO category_rules (id, pattern, match_type, category_id, priority, enabled)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      fullRule.id,
+      fullRule.pattern,
+      fullRule.matchType,
+      fullRule.categoryId,
+      fullRule.priority,
+      fullRule.enabled ? 1 : 0,
+    ]
+  );
+  return fullRule;
+}
+

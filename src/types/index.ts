@@ -1,14 +1,25 @@
+import type { MoneyPaise } from '../utils/money';
+export type { MoneyPaise };
+
 export interface UserProfile {
   id: string;
   username: string;
+  phoneNumber?: string;
   avatarUri?: string;
+  createdAt: string;
+}
+
+export interface LocalProfile {
+  id: string;
+  phoneNumber: string;
   createdAt: string;
 }
 
 export interface BalanceSnapshot {
   id: string;
-  amount: number;
-  source: 'USER_ENTERED' | 'MANUAL_ADJUSTMENT';
+  amount: number; // Rupee value for existing components
+  amountPaise?: MoneyPaise;
+  source: 'USER_ENTERED' | 'MANUAL_ADJUSTMENT' | 'SMS_REPORTED';
   createdAt: string;
 }
 
@@ -18,15 +29,20 @@ export interface Envelope {
   id: string;
   name: string;
   archetype?: BucketArchetype;
-  currentAmount: number;
+  currentAmount: number; // Rupee value for UI
+  currentBalancePaise?: MoneyPaise;
   allocatedAmount?: number;
   minimumAmount?: number;
+  minimumPaise?: MoneyPaise;
   targetAmount?: number;
+  targetPaise?: MoneyPaise;
   maximumAmount?: number;
+  maximumPaise?: MoneyPaise;
   icon?: string;
   color?: string;
   sortOrder: number;
   isActive: boolean;
+  isUnallocated?: boolean;
 }
 
 export type LedgerEventType =
@@ -43,6 +59,7 @@ export interface LedgerEvent {
   id: string;
   type: LedgerEventType;
   amount: number;
+  amountPaise?: MoneyPaise;
   sourceEnvelopeId?: string;
   destinationEnvelopeId?: string;
   paymentId?: string;
@@ -62,6 +79,7 @@ export interface PaymentTransaction {
   id: string;
   envelopeId: string;
   requestedAmount: number;
+  requestedAmountPaise?: MoneyPaise;
   payeeVpa: string;
   payeeName?: string;
   qrPayload?: string;
@@ -80,6 +98,7 @@ export interface ParsedUPIQR {
   payeeVpa: string;
   payeeName?: string;
   amount?: number;
+  amountPaise?: MoneyPaise;
   currency: string;
   transactionRef?: string;
   transactionNote?: string;
@@ -128,3 +147,202 @@ export interface NormalizedUPIResponse {
   failureDetails?: UPIFailureDetails;
 }
 
+// -------------------------------------------------------------
+// New Domain Models for SMS Ingestion, Ledger & Reconciliation
+// -------------------------------------------------------------
+
+export interface Account {
+  id: string;
+  displayName: string;
+  bankName: string;
+  accountLast4?: string;
+  currency: string;
+  source: 'SMS_REPORTED' | 'MANUAL_INITIAL_BALANCE';
+  initialBalancePaise: MoneyPaise;
+  trackedBalancePaise: MoneyPaise;
+  lastReportedBalancePaise?: MoneyPaise;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type TransactionType =
+  | 'EXPENSE'
+  | 'INCOME'
+  | 'TRANSFER'
+  | 'REFUND'
+  | 'REVERSAL'
+  | 'INVESTMENT'
+  | 'BALANCE_UPDATE'
+  | 'FAILED'
+  | 'UPCOMING'
+  | 'UNKNOWN';
+
+export type TransactionChannel =
+  | 'UPI'
+  | 'CARD'
+  | 'IMPS'
+  | 'NEFT'
+  | 'RTGS'
+  | 'ATM'
+  | 'BANK'
+  | 'UNKNOWN';
+
+export type TransactionSource =
+  | 'SMS_AUTOMATIC'
+  | 'EXTERNAL_SMS'
+  | 'IN_APP_PAYMENT'
+  | 'MANUAL_ENTRY';
+
+export interface Transaction {
+  id: string;
+  accountId: string;
+  type: TransactionType;
+  amountPaise: MoneyPaise;
+  currency: string;
+  merchantName?: string;
+  payeeVpa?: string;
+  rawNarration?: string;
+  categoryId?: string;
+  envelopeId?: string;
+  referenceId?: string;
+  upiTxnId?: string;
+  accountLast4?: string;
+  balanceAfterPaise?: MoneyPaise;
+  bankName?: string;
+  channel: TransactionChannel;
+  source: TransactionSource;
+  confidence?: number;
+  occurredAt: string;
+  createdAt: string;
+}
+
+export interface TransactionMessage {
+  id: string;
+  transactionId: string;
+  sender: string;
+  messageHash: string;
+  receivedAt: string;
+  parserVersion: string;
+}
+
+export interface PaymentAttempt {
+  id: string;
+  envelopeId: string;
+  requestedAmountPaise: MoneyPaise;
+  payeeName?: string;
+  payeeVpa: string;
+  qrPayload?: string;
+  transactionRef: string;
+  upiTxnId?: string;
+  approvalRefNo?: string;
+  responseCode?: string;
+  returnedAmountPaise?: MoneyPaise;
+  status: PaymentStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MerchantRule {
+  id: string;
+  normalizedMerchant?: string;
+  normalizedVpa?: string;
+  categoryId: string;
+  envelopeId?: string;
+  source: 'USER_RULE' | 'SYSTEM_RULE';
+  priority: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CategoryRule {
+  id: string;
+  pattern: string;
+  matchType: 'EXACT' | 'CONTAINS' | 'REGEX' | 'PREFIX';
+  categoryId: string;
+  priority: number;
+  enabled: boolean;
+}
+
+export type SenderTrust =
+  | 'BANK'
+  | 'KNOWN_FINANCIAL'
+  | 'UNKNOWN'
+  | 'UNTRUSTED';
+
+export interface ParsedTransaction {
+  amountPaise: MoneyPaise;
+  type: TransactionType;
+  merchantName: string | null;
+  payeeVpa: string | null;
+  referenceId: string | null;
+  accountLast4: string | null;
+  balanceAfterPaise: MoneyPaise | null;
+  bankName: string | null;
+  channel: TransactionChannel;
+  occurredAt: string | null;
+  sender: string;
+  confidence: number;
+}
+
+export type SystemCategory =
+  | 'FOOD_DINING'
+  | 'GROCERIES'
+  | 'TRANSPORT'
+  | 'FUEL'
+  | 'SHOPPING'
+  | 'BILLS_UTILITIES'
+  | 'RENT_HOUSING'
+  | 'ENTERTAINMENT_SUBSCRIPTIONS'
+  | 'TRAVEL'
+  | 'HEALTHCARE'
+  | 'EDUCATION'
+  | 'EMI_DEBT'
+  | 'INSURANCE'
+  | 'PERSONAL_CARE'
+  | 'FAMILY_GIFTS'
+  | 'INVESTMENT_SAVINGS'
+  | 'CASH_ATM'
+  | 'BANK_FEES'
+  | 'TRANSFER'
+  | 'INCOME'
+  | 'REFUND'
+  | 'OTHER'
+  | 'UNCLASSIFIED';
+
+export type ClassificationReason =
+  | 'USER_VPA_RULE'
+  | 'USER_MERCHANT_RULE'
+  | 'KNOWN_MERCHANT'
+  | 'LEXICAL'
+  | 'KEYWORD'
+  | 'CHANNEL'
+  | 'UNCLASSIFIED';
+
+export interface ClassificationResult {
+  categoryId: SystemCategory | null;
+  confidence: number;
+  reason: ClassificationReason;
+}
+
+export type ConfirmationState =
+  | 'NO_MATCH'
+  | 'POSSIBLE_MATCH'
+  | 'STRONG_MATCH'
+  | 'CONFIRMED';
+
+export interface PaymentCorrelation {
+  paymentAttemptId: string;
+  smsTransactionId: string;
+  matchedSignals: string[];
+  score: number;
+  confirmationState: ConfirmationState;
+}
+
+export interface BalanceReconciliationResult {
+  isReconciled: boolean;
+  trackedBalancePaise: MoneyPaise;
+  latestReportedBalancePaise?: MoneyPaise;
+  differencePaise: MoneyPaise;
+  untrackedTransactionsCount: number;
+  status: 'RECONCILED' | 'MISMATCH' | 'NO_REPORTED_BALANCE';
+}

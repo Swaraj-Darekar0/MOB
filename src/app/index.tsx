@@ -6,7 +6,7 @@ export default function Index() {
   const isInitialized = useAppStore((state) => state.isInitialized);
 
   if (!isInitialized) {
-    return <Redirect href="/(onboarding)/username" />;
+    return <Redirect href={"/(onboarding)/phone" as any} />;
   }
 
   return <Redirect href="/(tabs)" />;

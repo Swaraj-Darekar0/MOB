@@ -108,13 +108,13 @@ export default function QRScanScreen() {
     const parsed: ParsedUPIQR = {
       isValid: true,
       payeeVpa: finalVpa,
-      payeeName: finalVpa.split('@')[0],
+      payeeName: undefined,
       amount: parsedAmount > 0 ? parsedAmount : undefined,
       currency: 'INR',
       transactionNote: note,
-      rawPayload: `upi://pay?pa=${encodeURIComponent(finalVpa)}&pn=${encodeURIComponent(
-        finalVpa.split('@')[0]
-      )}${parsedAmount > 0 ? `&am=${parsedAmount}` : ''}&cu=INR`,
+      rawPayload: `upi://pay?pa=${encodeURIComponent(finalVpa)}${
+        parsedAmount > 0 ? `&am=${parsedAmount.toFixed(2)}` : ''
+      }&cu=INR`,
       isDynamic: parsedAmount > 0,
     };
 

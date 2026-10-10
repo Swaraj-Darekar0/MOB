@@ -11,7 +11,9 @@ export default function OnboardingLayout() {
         animation: 'slide_from_right',
       }}
     >
+      <Stack.Screen name="phone" />
       <Stack.Screen name="username" />
+      <Stack.Screen name="sms-permission" />
       <Stack.Screen name="balance" />
       <Stack.Screen name="allocation" />
     </Stack>

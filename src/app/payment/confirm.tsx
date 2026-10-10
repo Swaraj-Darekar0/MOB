@@ -28,6 +28,8 @@ import {
   UPIFailureDetails,
 } from '../../types';
 import * as paymentService from '../../services/payment/paymentService';
+import * as database from '../../services/db/database';
+import { toPaise } from '../../utils/money';
 import {
   ArrowLeft,
   Store,
@@ -224,21 +226,43 @@ export default function PaymentConfirmScreen() {
       // 3. Persist INITIATED record in database
       await recordPayment(paymentRecord);
 
-      // 4. Construct UPI URI with Intelligent tr Stripping
+      // Track Payment Attempt for 3-signal correlation
+      database.insertPaymentAttempt({
+        id: paymentId,
+        envelopeId: currentEnvelope.id,
+        requestedAmountPaise: toPaise(numericAmount),
+        payeeName: parsedQR.payeeName,
+        payeeVpa: parsedQR.payeeVpa,
+        qrPayload: parsedQR.rawPayload,
+        transactionRef,
+        status: 'INITIATED',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      // 4. Construct UPI URI with Scanned QR Preservation & Clean Parameters
       const upiUri = paymentService.buildUPIUri({
         pa: parsedQR.payeeVpa,
         pn: parsedQR.payeeName,
         am: numericAmount,
-        tr: transactionRef,
+        tr: parsedQR.transactionRef,
         tn: parsedQR.transactionNote || `MOB from ${currentEnvelope.name}`,
         mc: parsedQR.merchantCode,
         mid: parsedQR.merchantId,
         sid: parsedQR.storeId,
         tid: parsedQR.terminalId,
+        rawPayload: parsedQR.rawPayload,
       });
 
       // 5. Launch intent targeting selected app or system chooser
       const normalizedResponse = await paymentService.launchUPIIntent(upiUri, selectedApp);
+
+      database.updatePaymentAttempt(paymentId, {
+        status: normalizedResponse.status,
+        upiTxnId: normalizedResponse.txnId,
+        approvalRefNo: normalizedResponse.approvalRefNo,
+        responseCode: normalizedResponse.responseCode,
+      });
 
       if (inFlightPaymentRef.current) {
         inFlightPaymentRef.current.resolved = true;
@@ -364,6 +388,20 @@ export default function PaymentConfirmScreen() {
 
       await recordPayment(paymentRecord);
       setPendingPaymentId(paymentId);
+
+      // Track Payment Attempt for 3-signal correlation
+      database.insertPaymentAttempt({
+        id: paymentId,
+        envelopeId: currentEnvelope.id,
+        requestedAmountPaise: toPaise(numericAmount),
+        payeeName: parsedQR.payeeName,
+        payeeVpa: parsedQR.payeeVpa,
+        qrPayload: parsedQR.rawPayload,
+        transactionRef,
+        status: 'INITIATED',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
 
       // Copy UPI ID to clipboard & open target UPI app directly in first-party mode
       const opened = await paymentService.executeAssistedP2PFlow(parsedQR.payeeVpa, selectedApp);
@@ -591,6 +629,21 @@ export default function PaymentConfirmScreen() {
               ? 'Verified merchant transaction. Google Pay will open to complete payment with your UPI PIN.'
               : `Copies ${parsedQR.payeeVpa} and opens Google Pay automatically.`}
           </Text>
+
+          {/* Fallback Assisted Option for Local Merchants */}
+          {isMerchant && (
+            <TouchableOpacity
+              style={styles.assistedFallbackBtn}
+              activeOpacity={0.7}
+              onPress={handleLaunchAssistedP2P}
+              disabled={isLaunching || isInsufficient || isInvalidAmount}
+            >
+              <Copy size={13} color={colors.accent} />
+              <Text style={styles.assistedFallbackText}>
+                Pay via Google Pay App (Copy & Open)
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
 
@@ -746,9 +799,21 @@ export default function PaymentConfirmScreen() {
               </View>
 
               <View style={styles.outcomeActionsList}>
+                {isMerchant && (
+                  <Button
+                    title="Pay via Google Pay App (Copy & Open)"
+                    variant="accent"
+                    size="md"
+                    style={{ marginBottom: spacing.sm }}
+                    onPress={async () => {
+                      setOutcomeModal(null);
+                      await handleLaunchAssistedP2P();
+                    }}
+                  />
+                )}
                 <Button
-                  title={isMerchant ? 'OK' : 'Return to Dashboard'}
-                  variant="accent"
+                  title={isMerchant ? 'Cancel' : 'Return to Dashboard'}
+                  variant={isMerchant ? 'ghost' : 'accent'}
                   size="md"
                   onPress={handleOutcomeReturnDashboard}
                 />
@@ -1450,6 +1515,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.statusSuccess,
     marginTop: 2,
+  },
+  assistedFallbackBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  assistedFallbackText: {
+    fontSize: 12.5,
+    color: colors.accent,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });
 

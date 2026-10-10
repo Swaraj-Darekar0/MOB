@@ -13,7 +13,9 @@ import { colors, spacing, borderRadius } from '../theme';
 import { useAppStore } from '../store/useAppStore';
 import { Card } from '../components/common/Card';
 import { AnimatedPillTabs } from '../components/ui/AnimatedPillTabs';
-import { PaymentTransaction, LedgerEvent } from '../types';
+import { PaymentTransaction, LedgerEvent, Transaction, SystemCategory } from '../types';
+import { SYSTEM_CATEGORIES } from '../services/sms/categorization/taxonomy';
+import { formatPaise } from '../utils/money';
 import {
   Receipt,
   ArrowUpRight,
@@ -24,13 +26,15 @@ import {
   XCircle,
   AlertCircle,
   ChevronLeft,
+  RotateCcw,
 } from 'lucide-react-native';
 
 export default function ActivityScreen() {
   const router = useRouter();
-  const { paymentTransactions, ledgerEvents, envelopes } = useAppStore();
-  const [filter, setFilter] = useState<'all' | 'payments' | 'ledger'>('all');
+  const { paymentTransactions, ledgerEvents, envelopes, transactions } = useAppStore();
+  const [filter, setFilter] = useState<'all' | 'bank' | 'payments' | 'ledger'>('all');
   const [selectedTxn, setSelectedTxn] = useState<PaymentTransaction | null>(null);
+  const [selectedBankTxn, setSelectedBankTxn] = useState<Transaction | null>(null);
 
   const getBucketName = (id?: string) => {
     if (!id) return 'Unallocated';
@@ -92,15 +96,16 @@ export default function ActivityScreen() {
           <View style={styles.topBarText}>
             <Text style={styles.headerTitle}>Activity & Ledger</Text>
             <Text style={styles.headerSubtitle}>
-              Complete audit trail of all UPI payments and envelope allocations.
+              Complete audit trail of all UPI payments, bank SMS, and envelope allocations.
             </Text>
           </View>
         </View>
 
-        <AnimatedPillTabs<'all' | 'payments' | 'ledger'>
+        <AnimatedPillTabs<'all' | 'bank' | 'payments' | 'ledger'>
           tabs={[
             { id: 'all', label: 'All Activity' },
-            { id: 'payments', label: 'Payments', badge: paymentTransactions.length },
+            { id: 'bank', label: 'Bank SMS', badge: transactions.length },
+            { id: 'payments', label: 'UPI Direct', badge: paymentTransactions.length },
             { id: 'ledger', label: 'Ledger Events', badge: ledgerEvents.length },
           ]}
           activeTab={filter}
@@ -109,6 +114,108 @@ export default function ActivityScreen() {
         />
 
         <ScrollView contentContainerStyle={styles.list}>
+          {/* Bank & SMS Transactions */}
+          {(filter === 'all' || filter === 'bank') && (
+            <View>
+              {transactions.map((item) => {
+                const isCredit = item.type === 'INCOME' || item.type === 'REVERSAL';
+                const categoryMeta = item.categoryId
+                  ? SYSTEM_CATEGORIES[item.categoryId as SystemCategory]
+                  : null;
+
+                return (
+                  <TouchableOpacity
+                    key={`bank-${item.id}`}
+                    activeOpacity={0.8}
+                    onPress={() => setSelectedBankTxn(item)}
+                  >
+                    <Card variant="raised" style={styles.itemCard}>
+                      <View style={styles.itemHeader}>
+                        <View style={styles.itemTitleGroup}>
+                          <View
+                            style={[
+                              styles.iconCirclePayment,
+                              item.type === 'INCOME' && styles.iconCircleIncome,
+                              item.type === 'REVERSAL' && styles.iconCircleReversal,
+                            ]}
+                          >
+                            {item.type === 'INCOME' ? (
+                              <ArrowDownLeft size={18} color="#10B981" />
+                            ) : item.type === 'REVERSAL' ? (
+                              <RotateCcw size={16} color="#A855F7" />
+                            ) : (
+                              <ArrowUpRight size={18} color={colors.accent} />
+                            )}
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.payeeName} numberOfLines={1}>
+                              {item.merchantName ||
+                                item.payeeVpa ||
+                                (item.type === 'INCOME' ? 'Credit Deposit' : 'Bank Transaction')}
+                            </Text>
+                            <View style={styles.tagRow}>
+                              {categoryMeta && (
+                                <View
+                                  style={[
+                                    styles.categoryPill,
+                                    { backgroundColor: `${categoryMeta.color}20` },
+                                  ]}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.categoryPillText,
+                                      { color: categoryMeta.color },
+                                    ]}
+                                  >
+                                    {categoryMeta.displayName}
+                                  </Text>
+                                </View>
+                              )}
+                              <Text style={styles.envelopeTag}>
+                                {item.bankName || 'Bank'}{' '}
+                                {item.accountLast4 ? `••${item.accountLast4}` : ''}
+                              </Text>
+                            </View>
+                          </View>
+                        </View>
+
+                        <View style={styles.amountCol}>
+                          <Text
+                            style={[
+                              styles.amountNegative,
+                              isCredit && styles.amountPositive,
+                            ]}
+                          >
+                            {isCredit ? '+' : '-'}
+                            {formatPaise(item.amountPaise, true)}
+                          </Text>
+                          <View
+                            style={[
+                              styles.sourceBadge,
+                              item.source === 'IN_APP_PAYMENT' && styles.sourceBadgeGPay,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.sourceBadgeText,
+                                item.source === 'IN_APP_PAYMENT' &&
+                                  styles.sourceBadgeTextGPay,
+                              ]}
+                            >
+                              {item.source === 'IN_APP_PAYMENT'
+                                ? 'GPAY + SMS'
+                                : 'BANK SMS'}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    </Card>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+
           {/* Payment Transactions */}
           {(filter === 'all' || filter === 'payments') && (
             <View>
@@ -177,7 +284,7 @@ export default function ActivityScreen() {
             </View>
           )}
 
-          {paymentTransactions.length === 0 && ledgerEvents.length === 0 && (
+          {transactions.length === 0 && paymentTransactions.length === 0 && ledgerEvents.length === 0 && (
             <View style={styles.emptyContainer}>
               <Receipt size={40} color={colors.textTertiary} />
               <Text style={styles.emptyText}>No activity recorded yet.</Text>
@@ -264,6 +371,119 @@ export default function ActivityScreen() {
                     </Text>
                   </View>
                 )}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Bank Transaction Details Modal */}
+      <Modal visible={!!selectedBankTxn} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Bank Transaction Audit</Text>
+              <TouchableOpacity onPress={() => setSelectedBankTxn(null)}>
+                <X size={20} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {selectedBankTxn && (
+              <ScrollView style={styles.modalScroll}>
+                <View style={styles.receiptAmountRow}>
+                  <Text
+                    style={[
+                      styles.receiptAmount,
+                      (selectedBankTxn.type === 'INCOME' || selectedBankTxn.type === 'REVERSAL') &&
+                        styles.amountPositive,
+                    ]}
+                  >
+                    {selectedBankTxn.type === 'INCOME' || selectedBankTxn.type === 'REVERSAL'
+                      ? '+'
+                      : '-'}
+                    {formatPaise(selectedBankTxn.amountPaise, true)}
+                  </Text>
+                  <View style={[styles.badge, styles.badgeSuccess]}>
+                    <Text style={[styles.badgeText, { color: colors.statusSuccess }]}>
+                      {selectedBankTxn.type}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Merchant / Payee</Text>
+                  <Text style={styles.detailVal}>
+                    {selectedBankTxn.merchantName ||
+                      selectedBankTxn.payeeVpa ||
+                      'Bank Transfer'}
+                  </Text>
+                </View>
+
+                {selectedBankTxn.payeeVpa && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>UPI ID (VPA)</Text>
+                    <Text style={styles.detailVal}>{selectedBankTxn.payeeVpa}</Text>
+                  </View>
+                )}
+
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Category</Text>
+                  <Text style={styles.detailVal}>
+                    {selectedBankTxn.categoryId
+                      ? SYSTEM_CATEGORIES[selectedBankTxn.categoryId as SystemCategory]
+                          ?.displayName || selectedBankTxn.categoryId
+                      : 'Unclassified'}
+                  </Text>
+                </View>
+
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Bank & Account</Text>
+                  <Text style={styles.detailVal}>
+                    {selectedBankTxn.bankName || 'Bank'}{' '}
+                    {selectedBankTxn.accountLast4
+                      ? `(••${selectedBankTxn.accountLast4})`
+                      : ''}
+                  </Text>
+                </View>
+
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Channel</Text>
+                  <Text style={styles.detailVal}>{selectedBankTxn.channel}</Text>
+                </View>
+
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Source</Text>
+                  <Text style={styles.detailVal}>
+                    {selectedBankTxn.source === 'IN_APP_PAYMENT'
+                      ? 'Google Pay + Bank SMS'
+                      : 'Bank SMS Ingestion'}
+                  </Text>
+                </View>
+
+                {selectedBankTxn.referenceId && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>UPI / Bank Ref ID</Text>
+                    <Text style={styles.detailMono}>{selectedBankTxn.referenceId}</Text>
+                  </View>
+                )}
+
+                {selectedBankTxn.balanceAfterPaise !== undefined && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Reported Balance After</Text>
+                    <Text style={[styles.detailVal, { color: colors.accent }]}>
+                      {formatPaise(selectedBankTxn.balanceAfterPaise, true)}
+                    </Text>
+                  </View>
+                )}
+
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Timestamp</Text>
+                  <Text style={styles.detailVal}>
+                    {new Date(
+                      selectedBankTxn.occurredAt || selectedBankTxn.createdAt
+                    ).toLocaleString()}
+                  </Text>
+                </View>
               </ScrollView>
             )}
           </View>
@@ -472,5 +692,51 @@ const styles = StyleSheet.create({
     color: colors.accent,
     maxWidth: '60%',
     textAlign: 'right',
+  },
+  iconCircleIncome: {
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+  },
+  iconCircleReversal: {
+    backgroundColor: 'rgba(168, 85, 247, 0.12)',
+  },
+  amountPositive: {
+    color: '#10B981',
+  },
+  tagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+  },
+  categoryPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  categoryPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  sourceBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: 'rgba(100, 116, 139, 0.15)',
+    alignSelf: 'flex-end',
+    marginTop: 4,
+  },
+  sourceBadgeGPay: {
+    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+    borderColor: 'rgba(34, 197, 94, 0.25)',
+    borderWidth: 0.5,
+  },
+  sourceBadgeText: {
+    fontSize: 8.5,
+    fontWeight: '700',
+    color: colors.textTertiary,
+    letterSpacing: 0.3,
+  },
+  sourceBadgeTextGPay: {
+    color: '#4ADE80',
   },
 });

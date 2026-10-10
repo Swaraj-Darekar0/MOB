@@ -3,12 +3,17 @@ import { View, Text, StyleSheet } from 'react-native';
 import { colors, spacing, borderRadius } from '../../theme';
 import { Card } from '../common/Card';
 import { CountUp } from '../ui/CountUp';
+import { AlertTriangle, CheckCircle2 } from 'lucide-react-native';
 
 interface BalanceHeaderProps {
   trackedBalance: number;
   allocatedBalance: number;
   unallocatedBalance: number;
   username?: string;
+  source?: 'SMS_REPORTED' | 'MANUAL_INITIAL_BALANCE' | 'USER_ENTERED';
+  reconciliationStatus?: 'RECONCILED' | 'MISMATCH' | 'NO_REPORTED_BALANCE';
+  latestReportedBalance?: number;
+  differenceAmount?: number;
 }
 
 export const BalanceHeader: React.FC<BalanceHeaderProps> = ({
@@ -16,7 +21,13 @@ export const BalanceHeader: React.FC<BalanceHeaderProps> = ({
   allocatedBalance,
   unallocatedBalance,
   username,
+  source = 'MANUAL_INITIAL_BALANCE',
+  reconciliationStatus = 'NO_REPORTED_BALANCE',
+  latestReportedBalance,
+  differenceAmount,
 }) => {
+  const isMismatch = reconciliationStatus === 'MISMATCH' && (differenceAmount || 0) !== 0;
+
   return (
     <View style={styles.container}>
       {username ? (
@@ -29,17 +40,48 @@ export const BalanceHeader: React.FC<BalanceHeaderProps> = ({
       <Card variant="raised" style={styles.mainCard}>
         <View style={styles.headerTop}>
           <Text style={styles.subtitle}>TRACKED BANK BALANCE</Text>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>Manual Snapshot</Text>
+          <View
+            style={[
+              styles.badge,
+              reconciliationStatus === 'RECONCILED' && styles.badgeSuccess,
+              isMismatch && styles.badgeWarning,
+            ]}
+          >
+            <Text
+              style={[
+                styles.badgeText,
+                reconciliationStatus === 'RECONCILED' && { color: colors.statusSuccess },
+                isMismatch && { color: colors.statusWarning },
+              ]}
+            >
+              {isMismatch
+                ? 'Balance Mismatch'
+                : reconciliationStatus === 'RECONCILED'
+                ? 'SMS Reconciled'
+                : source === 'SMS_REPORTED'
+                ? 'SMS Verified'
+                : 'Manual Snapshot'}
+            </Text>
           </View>
         </View>
-        
+
         <CountUp
           value={trackedBalance}
           prefix="₹"
           duration={600}
           style={styles.mainBalance}
         />
+
+        {/* Explicit Mismatch Banner */}
+        {isMismatch && (
+          <View style={styles.mismatchBanner}>
+            <AlertTriangle size={14} color={colors.statusWarning} />
+            <Text style={styles.mismatchText}>
+              Bank reports ₹{(latestReportedBalance || 0).toLocaleString('en-IN')}{' '}
+              (Diff: ₹{Math.abs(differenceAmount || 0).toLocaleString('en-IN')}). Review recent activity.
+            </Text>
+          </View>
+        )}
 
         <View style={styles.divider} />
 
@@ -116,17 +158,42 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.borderDefault,
   },
+  badgeSuccess: {
+    backgroundColor: 'rgba(29, 185, 84, 0.1)',
+    borderColor: 'rgba(29, 185, 84, 0.3)',
+  },
+  badgeWarning: {
+    backgroundColor: 'rgba(255, 160, 0, 0.1)',
+    borderColor: 'rgba(255, 160, 0, 0.3)',
+  },
   badgeText: {
     fontSize: 10,
-    fontWeight: '500',
-    color: colors.textTertiary,
+    fontWeight: '700',
+    color: colors.textSecondary,
   },
   mainBalance: {
-    fontSize: 34,
-    fontWeight: '700',
+    fontSize: 38,
+    fontWeight: '800',
     color: colors.textPrimary,
+    marginVertical: spacing.xs,
     fontVariant: ['tabular-nums'],
-    marginVertical: spacing.sm,
+    letterSpacing: -1,
+  },
+  mismatchBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: 'rgba(255, 160, 0, 0.1)',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: borderRadius.sm,
+    marginVertical: spacing.xs,
+  },
+  mismatchText: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.statusWarning,
+    lineHeight: 16,
   },
   divider: {
     height: 1,
@@ -135,6 +202,7 @@ const styles = StyleSheet.create({
   },
   statsRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
   },
   statBox: {
@@ -142,27 +210,29 @@ const styles = StyleSheet.create({
   },
   statDivider: {
     width: 1,
+    height: 36,
     backgroundColor: colors.borderDefault,
     marginHorizontal: spacing.md,
   },
   statLabel: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginBottom: spacing.xxs,
+    fontSize: 11,
+    color: colors.textTertiary,
+    marginBottom: 4,
+    fontWeight: '500',
   },
   allocatedAmount: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: '700',
     color: colors.textPrimary,
     fontVariant: ['tabular-nums'],
   },
   unallocatedAmount: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: '700',
     color: colors.textSecondary,
     fontVariant: ['tabular-nums'],
   },
   unallocatedPositive: {
-    color: colors.accent,
+    color: colors.statusSuccess,
   },
 });
