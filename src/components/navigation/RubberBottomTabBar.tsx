@@ -14,7 +14,7 @@ export interface BottomTabBarProps {
 }
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RubberSegmentBar, RubberTabItem } from '../ui/RubberSegmentBar';
-import { FolderClosed, CreditCard, User } from 'lucide-react-native';
+import { FolderClosed, Target, CreditCard, User } from 'lucide-react-native';
 import { colors } from '../../theme';
 
 export const RubberBottomTabBar: React.FC<BottomTabBarProps> = ({
@@ -29,6 +29,13 @@ export const RubberBottomTabBar: React.FC<BottomTabBarProps> = ({
       label: 'Buckets',
       icon: (color, focused) => (
         <FolderClosed size={20} color={color} strokeWidth={focused ? 2.4 : 1.8} />
+      ),
+    },
+    {
+      id: 'goals',
+      label: 'Goals',
+      icon: (color, focused) => (
+        <Target size={20} color={color} strokeWidth={focused ? 2.4 : 1.8} />
       ),
     },
     {

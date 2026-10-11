@@ -39,7 +39,7 @@ export const BalanceHeader: React.FC<BalanceHeaderProps> = ({
 
       <Card variant="raised" style={styles.mainCard}>
         <View style={styles.headerTop}>
-          <Text style={styles.subtitle}>TRACKED BANK BALANCE</Text>
+          <Text style={styles.subtitle}>AVAILABLE BALANCE</Text>
           <View
             style={[
               styles.badge,

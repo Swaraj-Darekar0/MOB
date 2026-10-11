@@ -45,3 +45,7 @@ example
 
 # local npm
 .npmrc
+
+# exported user personal data
+*.csv
+docs/*.csv

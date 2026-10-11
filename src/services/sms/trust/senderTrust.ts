@@ -19,7 +19,7 @@ const BANK_SENDER_REGISTRY: Record<string, BankSenderRecord> = {
   SBIINB: {
     bankName: 'State Bank of India',
     trust: 'BANK',
-    aliases: ['SBIINB', 'SBMSMS', 'SBIPAY', 'SBICRD', 'SBISMS', 'SBIBK', 'SBIBNK', 'ATMSBI', 'SBICARD'],
+    aliases: ['SBIINB', 'SBMSMS', 'SBIPAY', 'SBICRD', 'SBISMS', 'SBIBK', 'SBIBNK', 'ATMSBI', 'SBICARD', 'SBIUPI'],
   },
   PNBSMS: {
     bankName: 'Punjab National Bank',
@@ -39,7 +39,7 @@ const BANK_SENDER_REGISTRY: Record<string, BankSenderRecord> = {
   UNIONB: {
     bankName: 'Union Bank of India',
     trust: 'BANK',
-    aliases: ['UNIONB', 'UBITXN', 'UBIALT', 'UNIONBANK', 'UBOI'],
+    aliases: ['UNIONB', 'UBITXN', 'UBIALT', 'UNIONBANK', 'UBOI', 'UNION', 'UNION_BANK'],
   },
   BOIIND: {
     bankName: 'Bank of India',

@@ -1,6 +1,6 @@
 import 'react-native-gesture-handler';
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -31,6 +31,20 @@ export default function RootLayout() {
     }
     init();
   }, []);
+
+  // App-Resume Reconciliation & Goal Allocation Invariant Hook
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active' && isInitialized) {
+        useAppStore.getState().reconcileTrackedBalance().catch(() => {});
+        useAppStore.getState().runScheduledGoalAllocations().catch(() => {});
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [isInitialized]);
 
   useEffect(() => {
     if (!appReady) return;

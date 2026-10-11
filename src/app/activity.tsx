@@ -31,10 +31,15 @@ import {
 
 export default function ActivityScreen() {
   const router = useRouter();
-  const { paymentTransactions, ledgerEvents, envelopes, transactions } = useAppStore();
-  const [filter, setFilter] = useState<'all' | 'bank' | 'payments' | 'ledger'>('all');
+  const { paymentTransactions, ledgerEvents, envelopes, transactions, teachMerchantRule } = useAppStore();
+  const [filter, setFilter] = useState<'all' | 'review' | 'bank' | 'payments' | 'ledger'>('all');
   const [selectedTxn, setSelectedTxn] = useState<PaymentTransaction | null>(null);
   const [selectedBankTxn, setSelectedBankTxn] = useState<Transaction | null>(null);
+
+  const reviewItems = transactions.filter(
+    (t) => !t.envelopeId || t.categoryId === 'UNCLASSIFIED'
+  );
+  const unclassifiedCount = reviewItems.length;
 
   const getBucketName = (id?: string) => {
     if (!id) return 'Unallocated';
@@ -101,9 +106,10 @@ export default function ActivityScreen() {
           </View>
         </View>
 
-        <AnimatedPillTabs<'all' | 'bank' | 'payments' | 'ledger'>
+        <AnimatedPillTabs<'all' | 'review' | 'bank' | 'payments' | 'ledger'>
           tabs={[
             { id: 'all', label: 'All Activity' },
+            { id: 'review', label: 'Review Queue', badge: unclassifiedCount },
             { id: 'bank', label: 'Bank SMS', badge: transactions.length },
             { id: 'payments', label: 'UPI Direct', badge: paymentTransactions.length },
             { id: 'ledger', label: 'Ledger Events', badge: ledgerEvents.length },
@@ -114,10 +120,10 @@ export default function ActivityScreen() {
         />
 
         <ScrollView contentContainerStyle={styles.list}>
-          {/* Bank & SMS Transactions */}
-          {(filter === 'all' || filter === 'bank') && (
+          {/* Review Queue or Bank & SMS Transactions */}
+          {(filter === 'all' || filter === 'bank' || filter === 'review') && (
             <View>
-              {transactions.map((item) => {
+              {(filter === 'review' ? reviewItems : transactions).map((item) => {
                 const isCredit = item.type === 'INCOME' || item.type === 'REVERSAL';
                 const categoryMeta = item.categoryId
                   ? SYSTEM_CATEGORIES[item.categoryId as SystemCategory]
@@ -484,6 +490,44 @@ export default function ActivityScreen() {
                     ).toLocaleString()}
                   </Text>
                 </View>
+
+                {/* Unclassified Review Action: Assign Bucket & Teach Rule */}
+                {(!selectedBankTxn.envelopeId || selectedBankTxn.categoryId === 'UNCLASSIFIED') && (
+                  <View style={{ marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderColor: colors.borderDefault }}>
+                    <Text style={[styles.detailLabel, { marginBottom: 8, color: colors.statusWarning }]}>
+                      Assign to Bucket (Teaches Auto-Rule)
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                      {envelopes.map((env) => (
+                        <TouchableOpacity
+                          key={env.id}
+                          style={{
+                            paddingVertical: 6,
+                            paddingHorizontal: 10,
+                            borderRadius: borderRadius.sm,
+                            backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                            borderWidth: 1,
+                            borderColor: colors.accent,
+                          }}
+                          onPress={async () => {
+                            const targetIdentifier = selectedBankTxn.payeeVpa || selectedBankTxn.merchantName || 'unknown';
+                            await teachMerchantRule(
+                              targetIdentifier,
+                              env.id,
+                              'OTHER',
+                              !!selectedBankTxn.payeeVpa
+                            );
+                            setSelectedBankTxn(null);
+                          }}
+                        >
+                          <Text style={{ fontSize: 12, fontWeight: '600', color: colors.accent }}>
+                            {env.name}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                )}
               </ScrollView>
             )}
           </View>

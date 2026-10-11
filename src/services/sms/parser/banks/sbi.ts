@@ -50,9 +50,14 @@ export function parseSbiSms(body: string, sender: string, timestamp: number): Pa
   }
 
   if (!merchantName && isCredit) {
-    const byMatch = body.match(/(?:by|from)\s+([^.\n]+?)(?:\s+ref|\s+on|\s+avl|\.|$)/i);
-    if (byMatch) {
-      merchantName = normalizeMerchantName(byMatch[1]);
+    const transferFromMatch = body.match(/transfer\s+from\s+([^.\n]+?)(?:\s+ref|\s+on|\s+avl|\.|$|-sbi)/i);
+    if (transferFromMatch) {
+      merchantName = normalizeMerchantName(transferFromMatch[1]);
+    } else {
+      const byMatch = body.match(/(?:by|from)\s+(?!rs\.?|inr|₹)([^.\n]+?)(?:\s+ref|\s+on|\s+avl|\.|$)/i);
+      if (byMatch) {
+        merchantName = normalizeMerchantName(byMatch[1]);
+      }
     }
   }
 

@@ -232,9 +232,9 @@ export const CreditCard: React.FC<CreditCardProps> = ({
 
         <View pointerEvents="none" style={styles.frostedRim} />
 
-        {/* Pure & Centered Total Available Balance */}
+        {/* Pure & Centered Available Balance */}
         <View style={styles.backCenterContainer}>
-          <Text style={styles.backBalanceLabel}>TOTAL BALANCE AVAILABLE</Text>
+          <Text style={styles.backBalanceLabel}>AVAILABLE BALANCE</Text>
           <Text style={styles.backBalanceValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
             ₹{safeBalance.toLocaleString('en-IN')}
           </Text>

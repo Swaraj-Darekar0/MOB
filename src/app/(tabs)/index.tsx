@@ -18,12 +18,15 @@ import { MorphingDeck, RubberSegmentBar } from '../../components/ui';
 import { Input } from '../../components/common/Input';
 import { Button } from '../../components/common/Button';
 import { Envelope } from '../../types';
-import { X, Plus, FolderPlus, LayoutGrid, Layers, Trash2 } from 'lucide-react-native';
+import { X, Plus, FolderPlus, LayoutGrid, Layers, Trash2, Inbox } from 'lucide-react-native';
+import { ReviewQueuePopup } from '../../components/dashboard/ReviewQueuePopup';
 
 export default function BucketsDashboardScreen() {
   const router = useRouter();
   const {
     envelopes,
+    unclassifiedTransactions,
+    assignTransactionToBucket,
     loadInitialData,
     createCustomEnvelope,
     deleteEnvelope,
@@ -37,6 +40,10 @@ export default function BucketsDashboardScreen() {
   const scrollY = useRef(0);
   const [stackScrollOffset, setStackScrollOffset] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(() => Math.max(500, windowHeight - 160));
+
+  // Review Queue Popup state
+  const [showReviewQueue, setShowReviewQueue] = useState(false);
+  const unclassifiedCount = unclassifiedTransactions ? unclassifiedTransactions.length : 0;
 
   // New Bucket Modal
   const [showNewBucket, setShowNewBucket] = useState(false);
@@ -119,58 +126,66 @@ export default function BucketsDashboardScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      {/* Top Header with Grid/Stack View Toggle and + New Bucket button */}
+      {/* Top Header: Review Queue (Left), New Bucket (Center), View Toggle (Right) */}
       <View style={styles.topDashboardBar}>
-        <View>
-          <Text style={styles.dashboardTitle}>BUCKETS</Text>
-          <Text style={styles.dashboardSubtitle}>
-            {envelopes.length} active allocation bucket{envelopes.length === 1 ? '' : 's'}
-          </Text>
-        </View>
-
-        <View style={styles.headerActions}>
-          {/* Top-Right View Switcher with Dynamic Rubber Squash-and-Stretch Animation */}
-          <RubberSegmentBar<'grid' | 'stack'>
-            tabs={[
-              {
-                id: 'grid',
-                label: '',
-                icon: (color) => (
-                  <LayoutGrid
-                    size={15}
-                    color={color}
-                    strokeWidth={2.2}
-                  />
-                ),
-              },
-              {
-                id: 'stack',
-                label: '',
-                icon: (color) => (
-                  <Layers
-                    size={15}
-                    color={color}
-                    strokeWidth={2.2}
-                  />
-                ),
-              },
-            ]}
-            activeTab={viewMode}
-            onTabChange={(mode) => handleToggleViewMode(mode)}
-            variant="compact"
-            style={styles.viewToggleRubber}
+        {/* Left: Review Queue Symbol Icon Button with Red Dot Badge */}
+        <TouchableOpacity
+          style={styles.reviewQueueBtn}
+          activeOpacity={0.7}
+          onPress={() => setShowReviewQueue(true)}
+          accessibilityLabel={`Review Queue. ${unclassifiedCount} transactions pending.`}
+        >
+          <Inbox
+            size={18}
+            color={unclassifiedCount > 0 ? colors.accent : colors.textSecondary}
+            strokeWidth={2.2}
           />
+          {unclassifiedCount > 0 && (
+            <View style={styles.reviewQueueBadgeDot} />
+          )}
+        </TouchableOpacity>
 
-          {/* New Bucket Button */}
-          <TouchableOpacity
-            style={[styles.headerIconBtn, styles.headerAccentBtn]}
-            activeOpacity={0.7}
-            onPress={() => setShowNewBucket(true)}
-          >
-            <Plus size={16} color="#FFFFFF" strokeWidth={2.5} />
-            <Text style={styles.headerAccentBtnText}>New</Text>
-          </TouchableOpacity>
-        </View>
+        {/* Center: New Bucket Creation Button */}
+        <TouchableOpacity
+          style={styles.centerNewBucketBtn}
+          activeOpacity={0.75}
+          onPress={() => setShowNewBucket(true)}
+        >
+          <Plus size={14} color="#FFFFFF" strokeWidth={2.5} />
+          <Text style={styles.centerNewBucketBtnText}>New Bucket</Text>
+        </TouchableOpacity>
+
+        {/* Right: View Switcher with Dynamic Rubber Squash-and-Stretch Animation */}
+        <RubberSegmentBar<'grid' | 'stack'>
+          tabs={[
+            {
+              id: 'grid',
+              label: '',
+              icon: (color) => (
+                <LayoutGrid
+                  size={15}
+                  color={color}
+                  strokeWidth={2.2}
+                />
+              ),
+            },
+            {
+              id: 'stack',
+              label: '',
+              icon: (color) => (
+                <Layers
+                  size={15}
+                  color={color}
+                  strokeWidth={2.2}
+                />
+              ),
+            },
+          ]}
+          activeTab={viewMode}
+          onTabChange={(mode) => handleToggleViewMode(mode)}
+          variant="compact"
+          style={styles.viewToggleRubber}
+        />
       </View>
 
       {/* Scrollable Container with GSAP/Lenis Luxury Eased Inertia Physics */}
@@ -362,6 +377,17 @@ export default function BucketsDashboardScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Review Queue Pop-up with smooth top-left transition */}
+      <ReviewQueuePopup
+        visible={showReviewQueue}
+        onClose={() => setShowReviewQueue(false)}
+        unclassifiedItems={unclassifiedTransactions || []}
+        envelopes={envelopes}
+        onAssignBucket={async (txId, envId, catId) => {
+          await assignTransactionToBucket(txId, envId, catId);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -382,44 +408,47 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.borderDefault,
     backgroundColor: colors.surfaceBase,
   },
-  dashboardTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: colors.textPrimary,
-    letterSpacing: 1.2,
+  reviewQueueBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#12141A',
+    borderWidth: 1,
+    borderColor: '#242732',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
   },
-  dashboardSubtitle: {
-    fontSize: 11,
-    color: colors.textTertiary,
-    marginTop: 2,
+  reviewQueueBadgeDot: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    backgroundColor: '#EF4444',
+    borderWidth: 1.5,
+    borderColor: '#0B0D11',
   },
-  headerActions: {
+  centerNewBucketBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: 6,
+    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.35)',
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    borderRadius: 20,
+  },
+  centerNewBucketBtnText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#F8FAFC',
+    letterSpacing: 0.2,
   },
   viewToggleRubber: {
     width: 72,
-  },
-  headerIconBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: colors.surfaceRaised,
-    borderWidth: 1,
-    borderColor: colors.borderDefault,
-    paddingHorizontal: spacing.md - 2,
-    paddingVertical: spacing.xs + 3,
-    borderRadius: 8,
-  },
-  headerAccentBtn: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent,
-  },
-  headerAccentBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#FFFFFF',
   },
   container: {
     padding: spacing.lg,

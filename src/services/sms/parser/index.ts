@@ -8,6 +8,7 @@ import { parseAxisSms } from './banks/axis';
 import { parseKotakSms } from './banks/kotak';
 import { parseFederalSms } from './banks/federal';
 import { parseIdfcSms } from './banks/idfc';
+import { parseUnionBankSms } from './banks/union';
 import { parseGenericSms } from './banks/generic';
 
 export {
@@ -18,6 +19,7 @@ export {
   parseKotakSms,
   parseFederalSms,
   parseIdfcSms,
+  parseUnionBankSms,
   parseGenericSms,
 };
 
@@ -74,6 +76,8 @@ export function parseSms(
     parsed = parseFederalSms(body, sender, timestamp);
   } else if (header.includes('IDFC') || bankName.toUpperCase().includes('IDFC')) {
     parsed = parseIdfcSms(body, sender, timestamp);
+  } else if (header.includes('UNION') || bankName.toUpperCase().includes('UNION')) {
+    parsed = parseUnionBankSms(body, sender, timestamp);
   }
 
   // 4. Fallback to Generic Parser if bank-specific grammar missed or bank is another trusted institution

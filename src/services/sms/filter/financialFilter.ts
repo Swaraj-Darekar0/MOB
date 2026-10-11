@@ -84,7 +84,7 @@ const REVERSAL_KEYWORDS = [
   /\brefund\b/i,
 ];
 
-const AMOUNT_PATTERN = /(?:rs\.?|inr|₹)\s*[\d,]+(?:\.\d{1,2})?|[\d,]+(?:\.\d{1,2})?\s*(?:inr|rs\.?)/i;
+const AMOUNT_PATTERN = /(?:rs\.?:?|inr|₹)\s*[\d,]+(?:\.\d{1,2})?|[\d,]+(?:\.\d{1,2})?\s*(?:inr|rs\.?:?)/i;
 const ACCOUNT_OR_VPA_PATTERN = /(?:a\/c|acct|account|card|vpa|upi|ending|xx\d{2,4}|\*{2,}\d{2,4})/i;
 
 /**
@@ -97,10 +97,16 @@ export function isBookableFinancialMessage(body: string): FilterResult {
 
   const cleanBody = body.trim();
 
-  // 1. Check for OTP
-  for (const pattern of OTP_PATTERNS) {
-    if (pattern.test(cleanBody)) {
-      return { isBookable: false, rejectReason: 'OTP_OR_VERIFICATION' };
+  // 1. Check for OTP (distinguish between actual OTP generation and security advisories like "Never Share OTP")
+  const isSecurityAdvisory =
+    /\b(?:never\s+share|do\s+not\s+share)\s+(?:your\s+)?(?:otp|pin|cvv|password)\b/i.test(cleanBody) &&
+    !/\b(?:otp\s+is\s+\d+|is\s+(?:your\s+)?(?:secret\s+)?otp|\d{4,8}\s+is\s+your|use\s+code\s+\d+|valid\s+for\s+\d+\s*(?:mins|minutes))\b/i.test(cleanBody);
+
+  if (!isSecurityAdvisory) {
+    for (const pattern of OTP_PATTERNS) {
+      if (pattern.test(cleanBody)) {
+        return { isBookable: false, rejectReason: 'OTP_OR_VERIFICATION' };
+      }
     }
   }
 

@@ -231,6 +231,44 @@ console.log('--- 1. Testing Positive Bank SMS Fixtures ---');
   assertEqual(res?.merchantName, 'swiggy', 'Jupiter merchantName is swiggy');
 }
 
+// 1.16 Union Bank of India Debit with Rs: colon & Fvg: beneficiary
+{
+  const sms = 'Union Bank of India A/c *0221 Debited Rs:970.00 on 23-08-2026 04:27:47 by Mob Bk ref no 660156503565, Fvg: Sai Supe Avl Bal Rs:3008.42. Not you?Call 18002333';
+  const res = parseSms(sms, 'JK-UNIONB-T');
+  assert(res !== null, 'Union Bank Debit parsed successfully');
+  assertEqual(res?.bankName, 'Union Bank of India', 'Union Bank bank name identified');
+  assertEqual(res?.amountPaise, 97000, 'Union Bank amount is 97000 paise (₹970.00)');
+  assertEqual(res?.accountLast4, '0221', 'Union Bank accountLast4 is 0221');
+  assertEqual(res?.referenceId, '660156503565', 'Union Bank ref matches');
+  assertEqual(res?.merchantName, 'sai supe', 'Union Bank payee extracted via Fvg:');
+  assertEqual(res?.balanceAfterPaise, 300842, 'Union Bank balanceAfterPaise is 300842 paise (₹3,008.42)');
+  assertEqual(res?.channel, 'UPI', 'Union Bank channel is UPI');
+}
+
+// 1.17 Union Bank Credit with Never Share OTP security footer
+{
+  const sms = 'A/c *0221 Credited for Rs:1000.00 on 11-07-2026 20:06:22 by Mob Bk ref no 655823920629 Avl Bal Rs:1245.41.Never Share OTP/PIN/CVV-Union Bank';
+  const res = parseSms(sms, 'JK-UNIONB-S');
+  assert(res !== null, 'Union Bank Credit with OTP advisory parsed successfully');
+  assertEqual(res?.type, 'INCOME', 'Union Bank type is INCOME');
+  assertEqual(res?.amountPaise, 100000, 'Union Bank credit amount is 100000 paise (₹1,000.00)');
+  assertEqual(res?.accountLast4, '0221', 'Union Bank accountLast4 is 0221');
+  assertEqual(res?.balanceAfterPaise, 124541, 'Union Bank balanceAfterPaise is 124541 paise (₹1,245.41)');
+}
+
+// 1.18 SBI UPI Credit via JD-SBIUPI-S
+{
+  const sms = 'Dear SBI User, your A/c X0221-credited by Rs.80 on 13Jul26 transfer from ATHARV  ASHOK DARKE Ref No 619438089398 -SBI';
+  const res = parseSms(sms, 'JD-SBIUPI-S');
+  assert(res !== null, 'SBI UPI Credit parsed successfully');
+  assertEqual(res?.bankName, 'State Bank of India', 'SBI Bank name identified');
+  assertEqual(res?.type, 'INCOME', 'SBI type is INCOME');
+  assertEqual(res?.amountPaise, 8000, 'SBI amount is 8000 paise (₹80.00)');
+  assertEqual(res?.accountLast4, '0221', 'SBI accountLast4 is 0221');
+  assertEqual(res?.referenceId, '619438089398', 'SBI ref matches');
+  assertEqual(res?.merchantName, 'atharv ashok darke', 'SBI sender extracted from transfer from');
+}
+
 // --------------------------------------------------------------------------
 // 2. NEGATIVE FIXTURES (MUST BE REJECTED)
 // --------------------------------------------------------------------------

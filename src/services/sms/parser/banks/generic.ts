@@ -20,9 +20,9 @@ export function parseGenericSms(
   if (!isDebit && !isCredit && !isReversal) return null;
 
   // 1. Amount Extraction
-  let amountMatch = body.match(/(?:rs\.?|inr|₹)\s*([\d,]+(?:\.\d{1,2})?)/i);
+  let amountMatch = body.match(/(?:rs\.?:?|inr|₹)\s*([\d,]+(?:\.\d{1,2})?)/i);
   if (!amountMatch) {
-    amountMatch = body.match(/(?:debited|credited|spent|transferred|paid)\s+(?:by|with|for)?\s*(?:rs\.?|inr|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i);
+    amountMatch = body.match(/(?:debited|credited|spent|transferred|paid)\s+(?:by|with|for)?\s*(?:rs\.?:?|inr|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i);
   }
   if (!amountMatch) return null;
   const amountPaise = parseAmountToPaise(amountMatch[1]);
@@ -41,7 +41,7 @@ export function parseGenericSms(
   // 3. Balance After Extraction
   let balanceAfterPaise: number | null = null;
   const balMatch = body.match(
-    /(?:bal(?:ance)?|avl\s*bal|available\s*bal(?:ance)?|total\s*bal(?:ance)?|clear\s*balance|avl\s*lmt|avl\s*limit|available\s*limit)\s*(?::|is)?\s*(?:rs\.?|inr|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i
+    /(?:bal(?:ance)?|avl\s*bal|available\s*bal(?:ance)?|total\s*bal(?:ance)?|clear\s*balance|avl\s*lmt|avl\s*limit|available\s*limit)\s*(?::|is)?\s*(?:rs\.?:?|inr|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i
   );
   if (balMatch) {
     balanceAfterPaise = parseAmountToPaise(balMatch[1]);
@@ -81,6 +81,19 @@ export function parseGenericSms(
     const upiTokenMatch = body.match(/\bupi[:/]([a-zA-Z0-9_\s]+?)[:/]/i);
     if (upiTokenMatch && !/^\d+$/.test(upiTokenMatch[1].trim())) {
       merchantName = normalizeMerchantName(upiTokenMatch[1]);
+    }
+  }
+
+  // Check Fvg: (Favouring) pattern
+  if (!merchantName) {
+    const fvgMatch = body.match(/fvg:\s*([^,.\n]+?)(?:\s+avl|\.|$)/i);
+    if (fvgMatch) {
+      const rawTarget = fvgMatch[1].trim();
+      if (rawTarget.includes('@')) {
+        payeeVpa = normalizeVpa(rawTarget);
+      } else {
+        merchantName = normalizeMerchantName(rawTarget);
+      }
     }
   }
 

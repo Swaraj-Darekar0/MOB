@@ -23,7 +23,7 @@ export interface BalanceSnapshot {
   createdAt: string;
 }
 
-export type BucketArchetype = 'SPEND' | 'RESERVE';
+export type BucketArchetype = 'SPEND' | 'RESERVE' | 'GOAL';
 
 export interface Envelope {
   id: string;
@@ -345,4 +345,44 @@ export interface BalanceReconciliationResult {
   differencePaise: MoneyPaise;
   untrackedTransactionsCount: number;
   status: 'RECONCILED' | 'MISMATCH' | 'NO_REPORTED_BALANCE';
+}
+
+export type GoalCadence = 'DAILY' | 'WEEKLY' | 'MONTHLY';
+export type GoalStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'CANCELLED';
+
+export interface Goal {
+  id: string;
+  name: string;
+  targetAmountPaise: MoneyPaise;
+  currentBalancePaise: MoneyPaise;
+  cadence: GoalCadence;
+  installmentAmountPaise: MoneyPaise;
+  deadline: string; // ISO Date YYYY-MM-DD
+  nextContributionDate: string; // ISO Date YYYY-MM-DD
+  status: GoalStatus;
+  envelopeId: string; // Linked dedicated Goal Bucket
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GoalShortfall {
+  id: string;
+  goalId: string;
+  dueDate: string;
+  plannedAmountPaise: MoneyPaise;
+  allocatedAmountPaise: MoneyPaise;
+  shortfallAmountPaise: MoneyPaise;
+  unallocatedAvailablePaise: MoneyPaise;
+  resolved: boolean;
+  createdAt: string;
+}
+
+export interface GoalAllocationResult {
+  goalId: string;
+  goalName: string;
+  plannedPaise: MoneyPaise;
+  allocatedPaise: MoneyPaise;
+  shortfallPaise: MoneyPaise;
+  isPartial: boolean;
+  newNextDueDate: string;
 }

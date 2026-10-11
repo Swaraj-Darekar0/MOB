@@ -22,7 +22,6 @@ import {
   PieChart,
   CheckCircle,
   AlertCircle,
-  ReceiptText,
   Trash2,
   Check,
 } from 'lucide-react-native';
@@ -37,7 +36,6 @@ export default function CardsScreen() {
     addMoney,
     allocateToEnvelope,
     transferBetweenEnvelopes,
-    recordManualSpend,
     deleteEnvelope,
   } = useAppStore();
 
@@ -53,12 +51,6 @@ export default function CardsScreen() {
   const [selectedSourceId, setSelectedSourceId] = useState<string>('');
   const [moveDestId, setMoveDestId] = useState<string>('');
   const [moveAmountStr, setMoveAmountStr] = useState('');
-
-  // Manual Spend Modal
-  const [showManualSpend, setShowManualSpend] = useState(false);
-  const [manualSpendBucketId, setManualSpendBucketId] = useState<string>('');
-  const [manualSpendAmount, setManualSpendAmount] = useState<string>('');
-  const [manualSpendNote, setManualSpendNote] = useState<string>('');
 
   // Delete Bucket with Checkboxes Modal
   const [bucketToDelete, setBucketToDelete] = useState<any | null>(null);
@@ -174,42 +166,6 @@ export default function CardsScreen() {
       Alert.alert('Transfer Complete', `₹${amount.toLocaleString('en-IN')} moved successfully.`);
     } catch (err: any) {
       Alert.alert('Transfer Error', err.message || 'Could not move funds');
-    }
-  };
-
-  // Manual Spend Handler
-  const handleConfirmManualSpend = async () => {
-    const amount = parseFloat(manualSpendAmount.replace(/,/g, '').trim());
-    if (isNaN(amount) || amount <= 0) {
-      Alert.alert('Invalid Amount', 'Please enter an amount greater than ₹0');
-      return;
-    }
-
-    if (!manualSpendBucketId) {
-      Alert.alert('Selection Error', 'Please select a bucket to deduct from');
-      return;
-    }
-
-    const bucket = envelopes.find((e) => e.id === manualSpendBucketId);
-    if (!bucket || bucket.currentAmount < amount) {
-      Alert.alert(
-        'Insufficient Bucket Balance',
-        `"${bucket?.name || 'Selected bucket'}" only has ₹${(bucket?.currentAmount || 0).toLocaleString('en-IN')}`
-      );
-      return;
-    }
-
-    try {
-      await recordManualSpend(manualSpendBucketId, amount, manualSpendNote.trim() || undefined);
-      setManualSpendAmount('');
-      setManualSpendNote('');
-      setShowManualSpend(false);
-      Alert.alert(
-        'Spend Recorded',
-        `₹${amount.toLocaleString('en-IN')} deducted from "${bucket.name}".`
-      );
-    } catch (err: any) {
-      Alert.alert('Error', err.message || 'Could not record spend');
     }
   };
 
@@ -381,27 +337,6 @@ export default function CardsScreen() {
             </TouchableOpacity>
           )}
 
-          {/* Small label: MANUAL ENTRY */}
-          {envelopes.length > 0 && (
-            <View style={styles.manualEntryContainer}>
-              <Text style={styles.manualEntrySmallLabel}>MANUAL ENTRY</Text>
-
-              {/* Record Offline Spend Button */}
-              <TouchableOpacity
-                style={styles.manualSpendBtn}
-                activeOpacity={0.7}
-                onPress={() => {
-                  if (envelopes.length > 0) {
-                    setManualSpendBucketId(envelopes[0].id);
-                  }
-                  setShowManualSpend(true);
-                }}
-              >
-                <ReceiptText size={15} color={colors.textSecondary} strokeWidth={2.2} />
-                <Text style={styles.manualSpendBtnText}>Record Offline Spend</Text>
-              </TouchableOpacity>
-            </View>
-          )}
         </View>
 
         {/* Bucket Proportions Quick Glance */}
@@ -674,74 +609,6 @@ export default function CardsScreen() {
               variant="accent"
               size="lg"
               onPress={handleConfirmMoveBetween}
-            />
-          </View>
-        </View>
-      </Modal>
-
-      {/* ================= MODAL: RECORD MANUAL SPEND ================= */}
-      <Modal visible={showManualSpend} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <View>
-                <Text style={styles.modalTitle}>Record Offline Spend</Text>
-                <Text style={styles.modalSubtitle}>
-                  Deduct cash or offline expenses from a bucket
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setShowManualSpend(false)}>
-                <X size={20} color={colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Bucket Selector */}
-            <View style={styles.pickerSection}>
-              <Text style={styles.pickerLabel}>Deduct from Bucket:</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-                {envelopes.map((b) => (
-                  <TouchableOpacity
-                    key={`spend-${b.id}`}
-                    style={[
-                      styles.bucketChip,
-                      manualSpendBucketId === b.id && styles.bucketChipActive,
-                    ]}
-                    onPress={() => setManualSpendBucketId(b.id)}
-                  >
-                    <View style={[styles.chipColorDot, { backgroundColor: b.color || colors.accent }]} />
-                    <Text
-                      style={[
-                        styles.bucketChipText,
-                        manualSpendBucketId === b.id && styles.bucketChipTextActive,
-                      ]}
-                    >
-                      {b.name} (₹{b.currentAmount.toLocaleString('en-IN')})
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-
-            <Input
-              label="Amount Spent (₹)"
-              placeholder="e.g. 150"
-              keyboardType="numeric"
-              value={manualSpendAmount}
-              onChangeText={setManualSpendAmount}
-            />
-
-            <Input
-              label="Description / Merchant (Optional)"
-              placeholder="e.g. Street tea, Cash groceries"
-              value={manualSpendNote}
-              onChangeText={setManualSpendNote}
-            />
-
-            <Button
-              title="Record Spend"
-              variant="accent"
-              size="lg"
-              onPress={handleConfirmManualSpend}
             />
           </View>
         </View>
@@ -1198,38 +1065,6 @@ const styles = StyleSheet.create({
   overAllocatingText: {
     fontSize: 12,
     color: colors.statusError,
-  },
-  manualEntryContainer: {
-    width: '100%',
-    alignItems: 'center',
-    marginTop: spacing.md,
-  },
-  manualEntrySmallLabel: {
-    fontSize: 9.5,
-    fontWeight: '800',
-    color: '#666666',
-    letterSpacing: 1.2,
-    marginBottom: 6,
-    textTransform: 'uppercase',
-  },
-  manualSpendBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    borderRadius: borderRadius.default,
-    backgroundColor: '#15161B',
-    borderWidth: 1,
-    borderColor: '#252733',
-    width: '100%',
-  },
-  manualSpendBtnText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.textSecondary,
-    letterSpacing: 0.2,
   },
   bucketGlanceLeft: {
     flexDirection: 'row',

@@ -15,6 +15,11 @@ import {
   MerchantRule,
   CategoryRule,
   MoneyPaise,
+  Goal,
+  GoalShortfall,
+  GoalCadence,
+  GoalStatus,
+  BucketArchetype,
 } from '../../types';
 import { toPaise, toRupees } from '../../utils/money';
 
@@ -194,6 +199,33 @@ export function initDatabase(): void {
       enabled INTEGER NOT NULL DEFAULT 1
     );
 
+    CREATE TABLE IF NOT EXISTS goals (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      target_amount_paise INTEGER NOT NULL,
+      current_balance_paise INTEGER NOT NULL DEFAULT 0,
+      cadence TEXT NOT NULL,
+      installment_amount_paise INTEGER NOT NULL,
+      deadline TEXT NOT NULL,
+      next_contribution_date TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'ACTIVE',
+      envelope_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS goal_shortfalls (
+      id TEXT PRIMARY KEY,
+      goal_id TEXT NOT NULL,
+      due_date TEXT NOT NULL,
+      planned_amount_paise INTEGER NOT NULL,
+      allocated_amount_paise INTEGER NOT NULL,
+      shortfall_amount_paise INTEGER NOT NULL,
+      unallocated_available_paise INTEGER NOT NULL,
+      resolved INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_id);
     CREATE INDEX IF NOT EXISTS idx_transactions_occurred ON transactions(occurred_at);
     CREATE INDEX IF NOT EXISTS idx_transactions_ref ON transactions(reference_id);
@@ -201,6 +233,9 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_payment_attempts_ref ON payment_attempts(transaction_ref);
     CREATE INDEX IF NOT EXISTS idx_merchant_rules_vpa ON merchant_rules(normalized_vpa);
     CREATE INDEX IF NOT EXISTS idx_merchant_rules_merchant ON merchant_rules(normalized_merchant);
+    CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status);
+    CREATE INDEX IF NOT EXISTS idx_goals_next_date ON goals(next_contribution_date);
+    CREATE INDEX IF NOT EXISTS idx_shortfalls_goal ON goal_shortfalls(goal_id);
   `);
 
   try {
@@ -356,7 +391,7 @@ export function getEnvelopes(): Envelope[] {
 
 export interface CreateEnvelopeInput {
   name: string;
-  archetype?: 'SPEND' | 'RESERVE';
+  archetype?: BucketArchetype;
   currentAmount?: number;
   allocatedAmount?: number;
   minimumAmount?: number;
@@ -1502,6 +1537,37 @@ export function updateTransactionEnvelope(
   }
 }
 
+export function getUnclassifiedTransactions(limit: number = 100): Transaction[] {
+  const rows = db.getAllSync<any>(
+    `SELECT * FROM transactions 
+     WHERE envelope_id IS NULL OR category_id = 'UNCLASSIFIED'
+     ORDER BY occurred_at DESC LIMIT ?`,
+    [limit]
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    accountId: r.account_id,
+    type: r.type,
+    amountPaise: r.amount_paise,
+    currency: r.currency,
+    merchantName: r.merchant_name || undefined,
+    payeeVpa: r.payee_vpa || undefined,
+    rawNarration: r.raw_narration || undefined,
+    categoryId: r.category_id || undefined,
+    envelopeId: r.envelope_id || undefined,
+    referenceId: r.reference_id || undefined,
+    upiTxnId: r.upi_txn_id || undefined,
+    accountLast4: r.account_last4 || undefined,
+    balanceAfterPaise: r.balance_after_paise ?? undefined,
+    bankName: r.bank_name || undefined,
+    channel: r.channel,
+    source: r.source,
+    confidence: r.confidence ?? undefined,
+    occurredAt: r.occurred_at,
+    createdAt: r.created_at,
+  }));
+}
+
 // -------------------------------------------------------------
 // Transaction Messages (SMS Ingestion & Deduplication)
 // -------------------------------------------------------------
@@ -1779,4 +1845,184 @@ export function saveCategoryRule(
   );
   return fullRule;
 }
+
+// --------------------------------------------------------------------------
+// GOALS & SCHEDULED ALLOCATION PERSISTENCE
+// --------------------------------------------------------------------------
+
+export function getGoals(): Goal[] {
+  const rows = db.getAllSync<any>(`
+    SELECT id, name, target_amount_paise, current_balance_paise, cadence,
+           installment_amount_paise, deadline, next_contribution_date,
+           status, envelope_id, created_at, updated_at
+    FROM goals
+    ORDER BY created_at DESC
+  `);
+
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    targetAmountPaise: r.target_amount_paise,
+    currentBalancePaise: r.current_balance_paise,
+    cadence: r.cadence as GoalCadence,
+    installmentAmountPaise: r.installment_amount_paise,
+    deadline: r.deadline,
+    nextContributionDate: r.next_contribution_date,
+    status: r.status as GoalStatus,
+    envelopeId: r.envelope_id,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }));
+}
+
+export function getGoalById(id: string): Goal | null {
+  const r = db.getFirstSync<any>(`
+    SELECT id, name, target_amount_paise, current_balance_paise, cadence,
+           installment_amount_paise, deadline, next_contribution_date,
+           status, envelope_id, created_at, updated_at
+    FROM goals
+    WHERE id = ?
+  `, [id]);
+
+  if (!r) return null;
+  return {
+    id: r.id,
+    name: r.name,
+    targetAmountPaise: r.target_amount_paise,
+    currentBalancePaise: r.current_balance_paise,
+    cadence: r.cadence as GoalCadence,
+    installmentAmountPaise: r.installment_amount_paise,
+    deadline: r.deadline,
+    nextContributionDate: r.next_contribution_date,
+    status: r.status as GoalStatus,
+    envelopeId: r.envelope_id,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+export function insertGoal(goal: Goal): void {
+  db.runSync(
+    `INSERT INTO goals (
+      id, name, target_amount_paise, current_balance_paise, cadence,
+      installment_amount_paise, deadline, next_contribution_date,
+      status, envelope_id, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      goal.id,
+      goal.name,
+      goal.targetAmountPaise,
+      goal.currentBalancePaise,
+      goal.cadence,
+      goal.installmentAmountPaise,
+      goal.deadline,
+      goal.nextContributionDate,
+      goal.status,
+      goal.envelopeId,
+      goal.createdAt,
+      goal.updatedAt,
+    ]
+  );
+}
+
+export function updateGoal(id: string, updates: Partial<Goal>): void {
+  const fields: string[] = [];
+  const values: any[] = [];
+
+  if (updates.name !== undefined) {
+    fields.push('name = ?');
+    values.push(updates.name);
+  }
+  if (updates.targetAmountPaise !== undefined) {
+    fields.push('target_amount_paise = ?');
+    values.push(updates.targetAmountPaise);
+  }
+  if (updates.currentBalancePaise !== undefined) {
+    fields.push('current_balance_paise = ?');
+    values.push(updates.currentBalancePaise);
+  }
+  if (updates.cadence !== undefined) {
+    fields.push('cadence = ?');
+    values.push(updates.cadence);
+  }
+  if (updates.installmentAmountPaise !== undefined) {
+    fields.push('installment_amount_paise = ?');
+    values.push(updates.installmentAmountPaise);
+  }
+  if (updates.deadline !== undefined) {
+    fields.push('deadline = ?');
+    values.push(updates.deadline);
+  }
+  if (updates.nextContributionDate !== undefined) {
+    fields.push('next_contribution_date = ?');
+    values.push(updates.nextContributionDate);
+  }
+  if (updates.status !== undefined) {
+    fields.push('status = ?');
+    values.push(updates.status);
+  }
+
+  fields.push('updated_at = ?');
+  values.push(new Date().toISOString());
+
+  values.push(id);
+
+  db.runSync(`UPDATE goals SET ${fields.join(', ')} WHERE id = ?`, values);
+}
+
+export function deleteGoal(id: string): void {
+  db.withTransactionSync(() => {
+    const goal = getGoalById(id);
+    if (goal) {
+      db.runSync('DELETE FROM goal_shortfalls WHERE goal_id = ?', [id]);
+      db.runSync('DELETE FROM goals WHERE id = ?', [id]);
+      // Deactivate linked Goal Bucket envelope
+      db.runSync('UPDATE envelopes SET isActive = 0 WHERE id = ?', [goal.envelopeId]);
+    }
+  });
+}
+
+export function getGoalShortfalls(onlyUnresolved = true): GoalShortfall[] {
+  const query = onlyUnresolved
+    ? 'SELECT * FROM goal_shortfalls WHERE resolved = 0 ORDER BY created_at DESC'
+    : 'SELECT * FROM goal_shortfalls ORDER BY created_at DESC';
+
+  const rows = db.getAllSync<any>(query);
+  return rows.map((r) => ({
+    id: r.id,
+    goalId: r.goal_id,
+    dueDate: r.due_date,
+    plannedAmountPaise: r.planned_amount_paise,
+    allocatedAmountPaise: r.allocated_amount_paise,
+    shortfallAmountPaise: r.shortfall_amount_paise,
+    unallocatedAvailablePaise: r.unallocated_available_paise,
+    resolved: !!r.resolved,
+    createdAt: r.created_at,
+  }));
+}
+
+export function insertGoalShortfall(shortfall: GoalShortfall): void {
+  db.runSync(
+    `INSERT INTO goal_shortfalls (
+      id, goal_id, due_date, planned_amount_paise, allocated_amount_paise,
+      shortfall_amount_paise, unallocated_available_paise, resolved, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      shortfall.id,
+      shortfall.goalId,
+      shortfall.dueDate,
+      shortfall.plannedAmountPaise,
+      shortfall.allocatedAmountPaise,
+      shortfall.shortfallAmountPaise,
+      shortfall.unallocatedAvailablePaise,
+      shortfall.resolved ? 1 : 0,
+      shortfall.createdAt,
+    ]
+  );
+}
+
+export function resolveGoalShortfall(id: string): void {
+  db.runSync('UPDATE goal_shortfalls SET resolved = 1 WHERE id = ?', [id]);
+}
+
 

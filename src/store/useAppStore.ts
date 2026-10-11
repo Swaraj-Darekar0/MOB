@@ -10,10 +10,20 @@ import {
   MerchantRule,
   BalanceReconciliationResult,
   SystemCategory,
+  Goal,
+  GoalShortfall,
+  GoalCadence,
+  GoalAllocationResult,
+  MoneyPaise,
 } from '../types';
 import * as database from '../services/db/database';
 import { processIncomingSms, IngestionResult } from '../services/sms/ingestion/smsIngestionService';
 import { reconcileBalance } from '../services/sms/reconciliation/balanceReconciler';
+import {
+  createGoalWithDedicatedBucket,
+  processScheduledGoalAllocations,
+  moveMoneyToGoal,
+} from '../services/goals/goalPlanner';
 import { toPaise } from '../utils/money';
 
 export interface EnvelopeAllocation {
@@ -39,6 +49,8 @@ export interface AppState {
   primaryAccount: Account | null;
   reconciliationResult: BalanceReconciliationResult | null;
   merchantRules: MerchantRule[];
+  goals: Goal[];
+  shortfalls: GoalShortfall[];
   isLoading: boolean;
 
   // Actions
@@ -80,6 +92,28 @@ export interface AppState {
     categoryId: SystemCategory,
     isVpa?: boolean
   ) => Promise<MerchantRule>;
+  unclassifiedTransactions: Transaction[];
+  assignTransactionToBucket: (
+    transactionId: string,
+    envelopeId: string,
+    categoryId?: SystemCategory,
+    teachRule?: boolean
+  ) => Promise<void>;
+  createGoal: (params: {
+    name: string;
+    targetAmountPaise: MoneyPaise;
+    deadline: string;
+    cadence: GoalCadence;
+    initialDepositPaise?: MoneyPaise;
+  }) => Promise<Goal>;
+  updateGoal: (id: string, updates: Partial<Goal>) => Promise<void>;
+  deleteGoal: (id: string) => Promise<void>;
+  runScheduledGoalAllocations: () => Promise<{ allocations: GoalAllocationResult[]; shortfalls: GoalShortfall[] }>;
+  recoverShortfall: (
+    sourceEnvelopeId: string,
+    destinationGoalId: string,
+    amountPaise: MoneyPaise
+  ) => Promise<void>;
   resetBucketsAndActivity: () => Promise<void>;
   resetDatabase: () => Promise<void>;
   verifyInvariant: () => {
@@ -98,8 +132,11 @@ function getUpdatedStoreState() {
   const ledgerEvents = database.getLedgerEvents();
   const paymentTransactions = database.getPaymentTransactions();
   const transactions = database.getTransactions(50);
+  const unclassifiedTransactions = database.getUnclassifiedTransactions();
   const primaryAccount = database.getPrimaryAccount();
   const merchantRules = database.getMerchantRules();
+  const goals = database.getGoals();
+  const shortfalls = database.getGoalShortfalls();
   const unallocatedBalance = database.getUnallocatedBalance();
   const trackedBalance = snapshot ? snapshot.amount : 0;
   const allocatedBalance = envelopes.reduce((sum, env) => sum + env.currentAmount, 0);
@@ -119,9 +156,12 @@ function getUpdatedStoreState() {
     ledgerEvents,
     paymentTransactions,
     transactions,
+    unclassifiedTransactions,
     primaryAccount,
     reconciliationResult,
     merchantRules,
+    goals,
+    shortfalls,
     unallocatedBalance,
     trackedBalance,
     allocatedBalance,
@@ -139,9 +179,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   ledgerEvents: [],
   paymentTransactions: [],
   transactions: [],
+  unclassifiedTransactions: [],
   primaryAccount: null,
   reconciliationResult: null,
   merchantRules: [],
+  goals: [],
+  shortfalls: [],
   isLoading: false,
 
   loadInitialData: async () => {
@@ -426,6 +469,100 @@ export const useAppStore = create<AppState>((set, get) => ({
     const updated = getUpdatedStoreState();
     set({ ...updated });
     return rule;
+  },
+
+  assignTransactionToBucket: async (
+    transactionId: string,
+    envelopeId: string,
+    categoryId?: SystemCategory,
+    teachRule: boolean = true
+  ) => {
+    const tx = database.getTransactionById(transactionId);
+    database.updateTransactionEnvelope(
+      transactionId,
+      envelopeId,
+      categoryId || (tx?.categoryId as SystemCategory) || 'OTHER'
+    );
+
+    if (teachRule && tx) {
+      const identifier = tx.payeeVpa || tx.merchantName;
+      if (identifier) {
+        database.saveMerchantRule({
+          normalizedVpa: tx.payeeVpa ? tx.payeeVpa.toLowerCase().trim() : undefined,
+          normalizedMerchant: tx.merchantName ? tx.merchantName.toLowerCase().trim() : undefined,
+          categoryId: categoryId || (tx.categoryId as SystemCategory) || 'OTHER',
+          envelopeId,
+          source: 'USER_RULE',
+          priority: 10,
+        });
+      }
+    }
+
+    const updated = getUpdatedStoreState();
+    set({ ...updated });
+  },
+
+  createGoal: async (params) => {
+    set({ isLoading: true });
+    try {
+      const goal = createGoalWithDedicatedBucket(params);
+      const updated = getUpdatedStoreState();
+      set({ ...updated, isLoading: false });
+      return goal;
+    } catch (error) {
+      set({ isLoading: false });
+      console.error('Failed to create goal:', error);
+      throw error;
+    }
+  },
+
+  updateGoal: async (id, updates) => {
+    try {
+      database.updateGoal(id, updates);
+      const updated = getUpdatedStoreState();
+      set(updated);
+    } catch (error) {
+      console.error('Failed to update goal:', error);
+      throw error;
+    }
+  },
+
+  deleteGoal: async (id) => {
+    set({ isLoading: true });
+    try {
+      database.deleteGoal(id);
+      const updated = getUpdatedStoreState();
+      set({ ...updated, isLoading: false });
+    } catch (error) {
+      set({ isLoading: false });
+      console.error('Failed to delete goal:', error);
+      throw error;
+    }
+  },
+
+  runScheduledGoalAllocations: async () => {
+    try {
+      const result = processScheduledGoalAllocations();
+      const updated = getUpdatedStoreState();
+      set(updated);
+      return result;
+    } catch (error) {
+      console.error('Failed to process scheduled goal allocations:', error);
+      throw error;
+    }
+  },
+
+  recoverShortfall: async (sourceEnvelopeId, destinationGoalId, amountPaise) => {
+    set({ isLoading: true });
+    try {
+      moveMoneyToGoal(sourceEnvelopeId, destinationGoalId, amountPaise);
+      const updated = getUpdatedStoreState();
+      set({ ...updated, isLoading: false });
+    } catch (error) {
+      set({ isLoading: false });
+      console.error('Failed to recover shortfall:', error);
+      throw error;
+    }
   },
 
   resetBucketsAndActivity: async () => {

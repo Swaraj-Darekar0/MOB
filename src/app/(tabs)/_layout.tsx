@@ -17,6 +17,12 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="goals"
+        options={{
+          title: 'Goals',
+        }}
+      />
+      <Tabs.Screen
         name="cards"
         options={{
           title: 'Cards',
