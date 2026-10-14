@@ -8,7 +8,9 @@ import {
   ViewStyle,
   GestureResponderEvent,
   TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
+import { Image } from 'expo-image';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -35,6 +37,7 @@ export interface ReflectiveCardProps {
   username?: string;
   avatarUri?: string;
   onEditPhoto?: () => void;
+  isUpdatingPhoto?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -42,6 +45,7 @@ export const ReflectiveCard: React.FC<ReflectiveCardProps> = ({
   username = 'User',
   avatarUri,
   onEditPhoto,
+  isUpdatingPhoto = false,
   style,
 }) => {
   const isReducedMotion = useReducedMotion();
@@ -177,21 +181,46 @@ export const ReflectiveCard: React.FC<ReflectiveCardProps> = ({
 
         {/* Card Main Body */}
         <View style={styles.cardBody}>
-          {/* Base Background: GPU-based 3D Pixel Sculpt relief tiles */}
+          {/* Base Background: User Avatar Image or GPU-based 3D Pixel Sculpt relief tiles */}
           <View style={StyleSheet.absoluteFill} pointerEvents="none">
-            <PixelSculptImage
-              ref={pixelSculptRef}
-              source={effectiveAvatar || ''}
-              width={330}
-              height={380}
-              tileResolution={40}
-              depthScale={0.35}
-              ambientLight={0.45}
-              diffuseLight={0.75}
-              interactive={false}
-            />
-            {/* Dark metallic iridescent cyber tint overlay */}
-            <View style={[StyleSheet.absoluteFill, styles.pixelSculptTint]} />
+            {effectiveAvatar ? (
+              <>
+                <Image
+                  source={{ uri: effectiveAvatar }}
+                  style={StyleSheet.absoluteFill}
+                  contentFit="cover"
+                  transition={250}
+                />
+                {/* Luxury card contrast vignette */}
+                <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
+                  <Defs>
+                    <SvgLinearGradient id="photoCardVignette" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <Stop offset="0%" stopColor="#06070C" stopOpacity="0.4" />
+                      <Stop offset="40%" stopColor="#06070C" stopOpacity="0.1" />
+                      <Stop offset="75%" stopColor="#06070C" stopOpacity="0.55" />
+                      <Stop offset="100%" stopColor="#06070C" stopOpacity="0.92" />
+                    </SvgLinearGradient>
+                  </Defs>
+                  <Rect width="100%" height="100%" fill="url(#photoCardVignette)" />
+                </Svg>
+              </>
+            ) : (
+              <>
+                <PixelSculptImage
+                  ref={pixelSculptRef}
+                  source=""
+                  width={330}
+                  height={380}
+                  tileResolution={40}
+                  depthScale={0.35}
+                  ambientLight={0.45}
+                  diffuseLight={0.75}
+                  interactive={false}
+                />
+                {/* Dark metallic iridescent cyber tint overlay */}
+                <View style={[StyleSheet.absoluteFill, styles.pixelSculptTint]} />
+              </>
+            )}
           </View>
 
           {/* Gliding Specular Reflection Sheen Beam */}
@@ -222,10 +251,15 @@ export const ReflectiveCard: React.FC<ReflectiveCardProps> = ({
                 <TouchableOpacity
                   activeOpacity={0.7}
                   onPress={onEditPhoto}
+                  disabled={isUpdatingPhoto}
                   style={styles.editPhotoBadge}
                   hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 >
-                  <Pencil size={15} color="#FFFFFF" />
+                  {isUpdatingPhoto ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Pencil size={15} color="#FFFFFF" />
+                  )}
                 </TouchableOpacity>
               ) : (
                 <View style={styles.sparkleBadge}>

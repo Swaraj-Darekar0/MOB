@@ -322,6 +322,7 @@ export interface ClassificationResult {
   categoryId: SystemCategory | null;
   confidence: number;
   reason: ClassificationReason;
+  envelopeId?: string;
 }
 
 export type ConfirmationState =

@@ -27,6 +27,7 @@ export interface ClassifierInput {
     normalizedMerchant?: string;
     normalizedVpa?: string;
     categoryId: SystemCategory;
+    envelopeId?: string;
   }>;
   ruleLookup?: RuleLookupFn;
 }
@@ -45,6 +46,7 @@ export function classifyTransaction(input: ClassifierInput): ClassificationResul
           categoryId: match.categoryId,
           confidence: 1.0,
           reason: 'USER_VPA_RULE',
+          envelopeId: match.envelopeId,
         };
       }
     }
@@ -55,6 +57,7 @@ export function classifyTransaction(input: ClassifierInput): ClassificationResul
           categoryId: userVpaRule.categoryId as SystemCategory,
           confidence: 1.0,
           reason: 'USER_VPA_RULE',
+          envelopeId: userVpaRule.envelopeId,
         };
       }
     }
@@ -69,6 +72,7 @@ export function classifyTransaction(input: ClassifierInput): ClassificationResul
           categoryId: match.categoryId,
           confidence: 0.98,
           reason: 'USER_MERCHANT_RULE',
+          envelopeId: match.envelopeId,
         };
       }
     }
@@ -79,6 +83,7 @@ export function classifyTransaction(input: ClassifierInput): ClassificationResul
           categoryId: userMerchantRule.categoryId as SystemCategory,
           confidence: 0.98,
           reason: 'USER_MERCHANT_RULE',
+          envelopeId: userMerchantRule.envelopeId,
         };
       }
     }

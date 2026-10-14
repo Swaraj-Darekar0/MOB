@@ -133,49 +133,159 @@ export function processIncomingSms(
         resolvedCategoryId = classification.categoryId;
       }
 
-      // Check if user has an existing envelope that matches this category name
+      // Check user-learned rule first, or fallback to generic bucket match
       const envelopes = getEnvelopes();
-      const matchingEnv = envelopes.find((e) => {
-        const nameLower = e.name.toLowerCase();
-        if (resolvedCategoryId === 'FOOD_DINING' && (nameLower.includes('food') || nameLower.includes('dining'))) return true;
-        if (resolvedCategoryId === 'GROCERIES' && nameLower.includes('grocer')) return true;
-        if (resolvedCategoryId === 'TRANSPORT' && (nameLower.includes('travel') || nameLower.includes('commute') || nameLower.includes('cab'))) return true;
-        if (resolvedCategoryId === 'SHOPPING' && nameLower.includes('shop')) return true;
-        if (resolvedCategoryId === 'BILLS_UTILITIES' && (nameLower.includes('bill') || nameLower.includes('util'))) return true;
-        if (resolvedCategoryId === 'RENT_HOUSING' && nameLower.includes('rent')) return true;
-        return false;
-      });
+      const deductRupees = toRupees(parsedTx.amountPaise);
 
-      if (matchingEnv && parsedTx.type === 'EXPENSE') {
-        resolvedEnvelopeId = matchingEnv.id;
-        const deductRupees = toRupees(parsedTx.amountPaise);
+      if (classification.envelopeId) {
+        if (classification.envelopeId === 'unallocated') {
+          // Explicit user-learned rule to assign this payee/merchant to Unallocated
+          resolvedEnvelopeId = 'unallocated';
+          if (parsedTx.type === 'EXPENSE' && deductRupees > 0) {
+            db.withTransactionSync(() => {
+              const snap = getBalanceSnapshot();
+              if (snap) {
+                const newTracked = roundAmount(Math.max(0, snap.amount - deductRupees));
+                db.runSync(
+                  'INSERT INTO balance_snapshots (id, amount, source, createdAt) VALUES (?, ?, ?, ?)',
+                  [generateId('snap'), newTracked, 'SMS_REPORTED', nowIso]
+                );
+              }
 
-        db.withTransactionSync(() => {
-          db.runSync(
-            'UPDATE envelopes SET currentAmount = currentAmount - ? WHERE id = ?',
-            [deductRupees, matchingEnv.id]
-          );
-
-          const snap = getBalanceSnapshot();
-          if (snap) {
-            const newTracked = roundAmount(Math.max(0, snap.amount - deductRupees));
-            db.runSync(
-              'INSERT INTO balance_snapshots (id, amount, source, createdAt) VALUES (?, ?, ?, ?)',
-              [generateId('snap'), newTracked, 'SMS_REPORTED', nowIso]
-            );
+              db.runSync(
+                `INSERT INTO ledger_events (id, type, amount, sourceEnvelopeId, destinationEnvelopeId, paymentId, note, createdAt)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                  generateId('event'),
+                  'PAYMENT_SUCCESS',
+                  deductRupees,
+                  null,
+                  null,
+                  null,
+                  `External SMS (Unallocated): ${parsedTx.merchantName || parsedTx.payeeVpa || 'Payment'} (₹${deductRupees})`,
+                  nowIso,
+                ]
+              );
+            });
           }
+        } else {
+          // Explicit user-learned rule for a specific envelope
+          const directEnv = envelopes.find((e) => e.id === classification.envelopeId);
+          if (directEnv) {
+            resolvedEnvelopeId = directEnv.id;
+            if (parsedTx.type === 'EXPENSE' && deductRupees > 0) {
+              db.withTransactionSync(() => {
+                db.runSync(
+                  'UPDATE envelopes SET currentAmount = currentAmount - ? WHERE id = ?',
+                  [deductRupees, directEnv.id]
+                );
+
+                const snap = getBalanceSnapshot();
+                if (snap) {
+                  const newTracked = roundAmount(Math.max(0, snap.amount - deductRupees));
+                  db.runSync(
+                    'INSERT INTO balance_snapshots (id, amount, source, createdAt) VALUES (?, ?, ?, ?)',
+                    [generateId('snap'), newTracked, 'SMS_REPORTED', nowIso]
+                  );
+                }
+
+                db.runSync(
+                  `INSERT INTO ledger_events (id, type, amount, sourceEnvelopeId, destinationEnvelopeId, paymentId, note, createdAt)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                  [
+                    generateId('event'),
+                    'PAYMENT_SUCCESS',
+                    deductRupees,
+                    directEnv.id,
+                    null,
+                    null,
+                    `External SMS Rule-Allocated: ${parsedTx.merchantName || parsedTx.payeeVpa || 'Payment'} (₹${deductRupees})`,
+                    nowIso,
+                  ]
+                );
+              });
+            }
+          } else {
+            // Target envelope was deleted by user; flag for Review Queue
+            resolvedEnvelopeId = undefined;
+            resolvedCategoryId = 'UNCLASSIFIED';
+          }
+        }
+      } else {
+        // Generic categorization match against currently active envelopes on screen
+        const matchingEnv = envelopes.find((e) => {
+          const nameLower = e.name.toLowerCase();
+          if (resolvedCategoryId === 'FOOD_DINING' && (nameLower.includes('food') || nameLower.includes('dining'))) return true;
+          if (resolvedCategoryId === 'GROCERIES' && nameLower.includes('grocer')) return true;
+          if (resolvedCategoryId === 'TRANSPORT' && (nameLower.includes('travel') || nameLower.includes('commute') || nameLower.includes('cab'))) return true;
+          if (resolvedCategoryId === 'SHOPPING' && nameLower.includes('shop')) return true;
+          if (resolvedCategoryId === 'BILLS_UTILITIES' && (nameLower.includes('bill') || nameLower.includes('util'))) return true;
+          if (resolvedCategoryId === 'RENT_HOUSING' && nameLower.includes('rent')) return true;
+          return false;
+        });
+
+        if (matchingEnv && parsedTx.type === 'EXPENSE' && deductRupees > 0) {
+          resolvedEnvelopeId = matchingEnv.id;
+
+          db.withTransactionSync(() => {
+            db.runSync(
+              'UPDATE envelopes SET currentAmount = currentAmount - ? WHERE id = ?',
+              [deductRupees, matchingEnv.id]
+            );
+
+            const snap = getBalanceSnapshot();
+            if (snap) {
+              const newTracked = roundAmount(Math.max(0, snap.amount - deductRupees));
+              db.runSync(
+                'INSERT INTO balance_snapshots (id, amount, source, createdAt) VALUES (?, ?, ?, ?)',
+                [generateId('snap'), newTracked, 'SMS_REPORTED', nowIso]
+              );
+            }
+
+            db.runSync(
+              `INSERT INTO ledger_events (id, type, amount, sourceEnvelopeId, destinationEnvelopeId, paymentId, note, createdAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                generateId('event'),
+                'PAYMENT_SUCCESS',
+                deductRupees,
+                matchingEnv.id,
+                null,
+                null,
+                `External SMS: ${parsedTx.merchantName || 'UPI'} (₹${deductRupees})`,
+                nowIso,
+              ]
+            );
+          });
+        } else if (!matchingEnv) {
+          // If no matching bucket exists on screen, leave unclassified so Review Queue catches it
+          resolvedEnvelopeId = undefined;
+          resolvedCategoryId = 'UNCLASSIFIED';
+        }
+      }
+      // If money is received (INCOME or REFUND), increment tracked balance snapshot so available balance & unallocated money update
+      const creditRupees = toRupees(parsedTx.amountPaise);
+      if ((parsedTx.type === 'INCOME' || parsedTx.type === 'REFUND') && creditRupees > 0) {
+        db.withTransactionSync(() => {
+          const snap = getBalanceSnapshot();
+          const baseAmount = snap ? snap.amount : 0;
+          const newTracked = roundAmount(baseAmount + creditRupees);
+          db.runSync(
+            'INSERT INTO balance_snapshots (id, amount, source, createdAt) VALUES (?, ?, ?, ?)',
+            [generateId('snap'), newTracked, 'SMS_REPORTED', nowIso]
+          );
 
           db.runSync(
             `INSERT INTO ledger_events (id, type, amount, sourceEnvelopeId, destinationEnvelopeId, paymentId, note, createdAt)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               generateId('event'),
-              'PAYMENT_SUCCESS',
-              deductRupees,
-              matchingEnv.id,
+              parsedTx.type === 'REFUND' ? 'REFUND' : 'INCOME_CREDIT',
+              creditRupees,
               null,
               null,
-              `External SMS: ${parsedTx.merchantName || 'UPI'} (₹${deductRupees})`,
+              null,
+              `Received ${parsedTx.type}: ${parsedTx.merchantName || parsedTx.payeeVpa || 'Credit'} (+₹${creditRupees})`,
               nowIso,
             ]
           );
@@ -221,13 +331,13 @@ export function processIncomingSms(
     insertTransactionMessage(savedMsg);
 
     // 6. Update Account Tracked Balance & Bank Balance
-    if (parsedTx.balanceAfterPaise) {
-      updateAccountBalances(
-        primaryAccount.id,
-        primaryAccount.trackedBalancePaise,
-        parsedTx.balanceAfterPaise
-      );
-    }
+    const latestSnapshot = getBalanceSnapshot();
+    const updatedTrackedPaise = latestSnapshot ? toPaise(latestSnapshot.amount) : primaryAccount.trackedBalancePaise;
+    updateAccountBalances(
+      primaryAccount.id,
+      updatedTrackedPaise,
+      parsedTx.balanceAfterPaise || primaryAccount.lastReportedBalancePaise
+    );
 
     return {
       status: 'PROCESSED',

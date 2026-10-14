@@ -1,0 +1,8 @@
+{
+  "name": "expo-sms-reader",
+  "platforms": ["android"],
+  "android": {
+    "package": "expo.modules.smsreader",
+    "modules": ["expo.modules.smsreader.SmsReaderModule"]
+  }
+}

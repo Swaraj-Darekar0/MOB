@@ -285,10 +285,11 @@ export function getUserProfile(): UserProfile | null {
     'SELECT id, username, avatarUri, createdAt FROM users LIMIT 1'
   );
   if (!row) return null;
+  const cleanAvatar = row.avatarUri && row.avatarUri.trim().length > 0 ? row.avatarUri.trim() : undefined;
   return {
     id: row.id,
     username: row.username,
-    avatarUri: row.avatarUri || undefined,
+    avatarUri: cleanAvatar,
     createdAt: row.createdAt,
   };
 }
@@ -297,7 +298,8 @@ export function saveUserProfile(username: string, avatarUri?: string): UserProfi
   const existing = getUserProfile();
   const now = new Date().toISOString();
   const trimmedName = username.trim();
-  const finalAvatar = avatarUri !== undefined ? avatarUri : existing?.avatarUri;
+  const cleanAvatar = avatarUri && avatarUri.trim().length > 0 ? avatarUri.trim() : undefined;
+  const finalAvatar = cleanAvatar !== undefined ? cleanAvatar : (existing?.avatarUri || undefined);
 
   if (existing) {
     db.runSync('UPDATE users SET username = ?, avatarUri = ? WHERE id = ?', [
@@ -330,10 +332,11 @@ export function updateUserAvatar(avatarUri: string): UserProfile {
   if (!existing) {
     throw new Error('User profile not found');
   }
-  db.runSync('UPDATE users SET avatarUri = ? WHERE id = ?', [avatarUri, existing.id]);
+  const cleanAvatar = avatarUri && avatarUri.trim().length > 0 ? avatarUri.trim() : undefined;
+  db.runSync('UPDATE users SET avatarUri = ? WHERE id = ?', [cleanAvatar ?? null, existing.id]);
   return {
     ...existing,
-    avatarUri,
+    avatarUri: cleanAvatar,
   };
 }
 
@@ -1524,17 +1527,79 @@ export function updateTransactionEnvelope(
   envelopeId: string,
   categoryId?: string
 ): void {
-  if (categoryId) {
+  const tx = getTransactionById(transactionId);
+  const hadNoEnvelope = !tx?.envelopeId;
+  const deductRupees = tx?.amountPaise ? toRupees(tx.amountPaise) : 0;
+  const targetCategory = categoryId && categoryId !== 'UNCLASSIFIED' ? categoryId : 'OTHER';
+
+  db.withTransactionSync(() => {
     db.runSync(
       'UPDATE transactions SET envelope_id = ?, category_id = ? WHERE id = ?',
-      [envelopeId, categoryId, transactionId]
+      [envelopeId, targetCategory, transactionId]
     );
-  } else {
-    db.runSync('UPDATE transactions SET envelope_id = ? WHERE id = ?', [
-      envelopeId,
-      transactionId,
-    ]);
-  }
+
+    // If an EXPENSE was previously unallocated (no envelope assigned),
+    // allocate it by deducting from the envelope (if not 'unallocated') and recording the ledger adjustment
+    if (hadNoEnvelope && tx?.type === 'EXPENSE' && deductRupees > 0) {
+      if (envelopeId !== 'unallocated') {
+        db.runSync(
+          'UPDATE envelopes SET currentAmount = currentAmount - ? WHERE id = ?',
+          [deductRupees, envelopeId]
+        );
+      }
+
+      const snap = getBalanceSnapshot();
+      if (snap) {
+        const newTracked = roundAmount(Math.max(0, snap.amount - deductRupees));
+        db.runSync(
+          'INSERT INTO balance_snapshots (id, amount, source, createdAt) VALUES (?, ?, ?, ?)',
+          [generateId('snap'), newTracked, 'SMS_REPORTED', new Date().toISOString()]
+        );
+      }
+
+      db.runSync(
+        `INSERT INTO ledger_events (id, type, amount, sourceEnvelopeId, destinationEnvelopeId, paymentId, note, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          generateId('event'),
+          'PAYMENT_SUCCESS',
+          deductRupees,
+          envelopeId === 'unallocated' ? null : envelopeId,
+          null,
+          null,
+          envelopeId === 'unallocated'
+            ? `Review Queue Allocated to Unallocated Cash: ${tx.merchantName || tx.payeeVpa || 'Payment'} (₹${deductRupees})`
+            : `Review Queue Allocated: ${tx.merchantName || tx.payeeVpa || 'Payment'} (₹${deductRupees})`,
+          new Date().toISOString(),
+        ]
+      );
+    }
+
+    // If an INCOME was previously unallocated (no envelope assigned) and is assigned to a specific bucket:
+    if (hadNoEnvelope && tx?.type === 'INCOME' && deductRupees > 0) {
+      if (envelopeId !== 'unallocated') {
+        db.runSync(
+          'UPDATE envelopes SET currentAmount = currentAmount + ? WHERE id = ?',
+          [deductRupees, envelopeId]
+        );
+
+        db.runSync(
+          `INSERT INTO ledger_events (id, type, amount, sourceEnvelopeId, destinationEnvelopeId, paymentId, note, createdAt)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            generateId('event'),
+            'ALLOCATION_TRANSFER',
+            deductRupees,
+            null,
+            envelopeId,
+            null,
+            `Review Queue Allocated Income to ${envelopeId}: ${tx.merchantName || tx.payeeVpa || 'Credit'} (₹${deductRupees})`,
+            new Date().toISOString(),
+          ]
+        );
+      }
+    }
+  });
 }
 
 export function getUnclassifiedTransactions(limit: number = 100): Transaction[] {

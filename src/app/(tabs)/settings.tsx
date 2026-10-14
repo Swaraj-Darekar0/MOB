@@ -32,11 +32,7 @@ import {
   RotateCcw,
   AlertTriangle,
   Check,
-  Inbox,
-  Building2,
 } from 'lucide-react-native';
-import { SYNTHETIC_TEST_FIXTURES, DeviceSmsMessage } from '../../services/sms/native/smsReader';
-import { formatPaise } from '../../utils/money';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -45,11 +41,6 @@ export default function ProfileScreen() {
     paymentTransactions,
     ledgerEvents,
     envelopes,
-    primaryAccount,
-    reconciliationResult,
-    merchantRules,
-    ingestSmsMessage,
-    reconcileTrackedBalance,
     updateProfileImage,
     resetBucketsAndActivity,
     resetDatabase,
@@ -57,7 +48,6 @@ export default function ProfileScreen() {
   const [filter, setFilter] = useState<'all' | 'payments' | 'ledger'>('all');
   const [selectedTxn, setSelectedTxn] = useState<PaymentTransaction | null>(null);
   const [isUpdatingPhoto, setIsUpdatingPhoto] = useState(false);
-  const [isSimulatingSms, setIsSimulatingSms] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [clearOnboarding, setClearOnboarding] = useState(false);
@@ -129,63 +119,6 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleSimulateSms = async (fixture: DeviceSmsMessage) => {
-    try {
-      setIsSimulatingSms(true);
-      const result = await ingestSmsMessage(
-        fixture.body,
-        fixture.sender,
-        fixture.timestamp || Date.now()
-      );
-      if (result.status === 'PROCESSED') {
-        const amtStr = result.transaction?.amountPaise
-          ? formatPaise(result.transaction.amountPaise, true)
-          : 'Amount';
-        Alert.alert(
-          'SMS Ingested Successfully',
-          `Transaction of ${amtStr} processed.\n\nBank: ${result.transaction?.bankName || fixture.sender}\nMerchant: ${result.transaction?.merchantName || 'N/A'}\nCategory: ${result.transaction?.categoryId || 'UNCLASSIFIED'}\n\nTracked balance and ledger updated.`
-        );
-      } else if (result.status === 'DUPLICATE') {
-        Alert.alert(
-          'Duplicate SMS Ignored',
-          'This bank message has already been recorded in your local ledger.'
-        );
-      } else if (result.status === 'NON_FINANCIAL') {
-        Alert.alert(
-          'Non-Bookable SMS Filtered',
-          `Message was safely filtered out.\nReason: ${result.reason || 'Non-financial or OTP'}`
-        );
-      } else {
-        Alert.alert('Ingestion Notice', result.reason || 'Could not process SMS.');
-      }
-    } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to simulate SMS');
-    } finally {
-      setIsSimulatingSms(false);
-    }
-  };
-
-  const handleManualReconcile = async () => {
-    try {
-      const res = await reconcileTrackedBalance();
-      if (res.status === 'RECONCILED') {
-        Alert.alert(
-          'Balance Reconciled',
-          `Tracked virtual balance matches bank reported balance!\n\nTracked: ${formatPaise(res.trackedBalancePaise, true)}\nBank Reported: ${res.latestReportedBalancePaise !== undefined ? formatPaise(res.latestReportedBalancePaise, true) : 'N/A'}`
-        );
-      } else if (res.status === 'MISMATCH') {
-        Alert.alert(
-          'Reconciliation Discrepancy',
-          `Bank reported balance differs from tracked balance by ${formatPaise(Math.abs(res.differencePaise), true)}.\n\nTracked: ${formatPaise(res.trackedBalancePaise, true)}\nBank Reported: ${res.latestReportedBalancePaise !== undefined ? formatPaise(res.latestReportedBalancePaise, true) : 'N/A'}\n\nPlease check recent activity for untracked debits or bank charges.`
-        );
-      } else {
-        Alert.alert('Reconciliation Status', 'No bank SMS reported balance found yet.');
-      }
-    } catch (err: any) {
-      Alert.alert('Reconciliation Error', err.message || 'Failed to reconcile balance.');
-    }
-  };
-
   const getBucketName = (id?: string) => {
     if (!id) return 'General';
     const env = envelopes.find((e) => e.id === id);
@@ -248,8 +181,10 @@ export default function ProfileScreen() {
             username={user?.username || 'User'}
             avatarUri={user?.avatarUri}
             onEditPhoto={handleEditPhoto}
+            isUpdatingPhoto={isUpdatingPhoto}
           />
         </View>
+
 
         {/* Reset Buckets & Activity Trigger */}
         <View style={styles.resetContainer}>
@@ -264,119 +199,6 @@ export default function ProfileScreen() {
             <RotateCcw size={13} color="#EF4444" strokeWidth={2.2} />
             <Text style={styles.resetBtnText}>Reset Buckets & Activity</Text>
           </TouchableOpacity>
-        </View>
-
-        {/* SMS Engine & Bank Reconciliation Testing Card */}
-        <View style={styles.smsSection}>
-          <View style={styles.smsHeaderRow}>
-            <View style={styles.smsHeaderLeft}>
-              <Inbox size={14} color={colors.accent} />
-              <Text style={styles.smsSectionTitle}>BANK SMS INGESTION & RECONCILIATION</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.reconcileBtn}
-              onPress={handleManualReconcile}
-              activeOpacity={0.7}
-            >
-              <RotateCcw size={11} color={colors.accent} />
-              <Text style={styles.reconcileBtnText}>Reconcile</Text>
-            </TouchableOpacity>
-          </View>
-
-          <Card variant="raised" style={styles.smsCard}>
-            <View style={styles.smsBankRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.smsBankName}>
-                  {primaryAccount?.bankName || 'Primary Bank'}{' '}
-                  {primaryAccount?.accountLast4 ? `(••${primaryAccount.accountLast4})` : ''}
-                </Text>
-                <Text style={styles.smsBalDesc}>
-                  Bank Reported:{' '}
-                  {primaryAccount?.lastReportedBalancePaise !== undefined
-                    ? formatPaise(primaryAccount.lastReportedBalancePaise, true)
-                    : '₹24,300.00'}
-                </Text>
-              </View>
-              <View
-                style={[
-                  styles.recBadge,
-                  reconciliationResult?.status === 'MISMATCH'
-                    ? styles.recBadgeMismatch
-                    : styles.recBadgeSuccess,
-                ]}
-              >
-                <CheckCircle
-                  size={11}
-                  color={
-                    reconciliationResult?.status === 'MISMATCH' ? '#EF4444' : '#10B981'
-                  }
-                />
-                <Text
-                  style={[
-                    styles.recBadgeText,
-                    {
-                      color:
-                        reconciliationResult?.status === 'MISMATCH'
-                          ? '#EF4444'
-                          : '#10B981',
-                    },
-                  ]}
-                >
-                  {reconciliationResult?.status === 'MISMATCH' ? 'MISMATCH' : 'RECONCILED'}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.smsDivider} />
-
-            <View style={styles.simHeaderRow}>
-              <Text style={styles.simSubtitle}>SIMULATE INCOMING SMS (PHYSICAL DEVICE TEST)</Text>
-              {isSimulatingSms && <ActivityIndicator size="small" color={colors.accent} />}
-            </View>
-
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.simScroll}
-            >
-              {SYNTHETIC_TEST_FIXTURES.map((fixture, idx) => {
-                const isNegative = idx >= 8;
-                return (
-                  <TouchableOpacity
-                    key={`fixture-${idx}`}
-                    style={[styles.simFixtureCard, isNegative && styles.simFixtureCardNeg]}
-                    activeOpacity={0.7}
-                    onPress={() => handleSimulateSms(fixture)}
-                    disabled={isSimulatingSms}
-                  >
-                    <View style={styles.simCardTop}>
-                      <Text style={styles.simSender} numberOfLines={1}>
-                        {fixture.sender}
-                      </Text>
-                      <View
-                        style={[
-                          styles.simTag,
-                          isNegative && styles.simTagNeg,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.simTagText,
-                            isNegative && styles.simTagTextNeg,
-                          ]}
-                        >
-                          {isNegative ? 'FILTER REJECT' : 'INGEST'}
-                        </Text>
-                      </View>
-                    </View>
-                    <Text style={styles.simBodySnippet} numberOfLines={2}>
-                      {fixture.body}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </Card>
         </View>
 
         {/* Activity Section directly below the card */}
@@ -941,149 +763,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     letterSpacing: 0.3,
     fontWeight: '500',
-  },
-  smsSection: {
-    marginBottom: spacing.xl,
-  },
-  smsHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.xs,
-    paddingHorizontal: 2,
-  },
-  smsHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  smsSectionTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    letterSpacing: 0.8,
-  },
-  reconcileBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: borderRadius.pill,
-    backgroundColor: 'rgba(58, 130, 238, 0.1)',
-    borderWidth: 0.5,
-    borderColor: 'rgba(58, 130, 238, 0.3)',
-  },
-  reconcileBtnText: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    color: colors.accent,
-  },
-  smsCard: {
-    padding: spacing.md,
-    borderRadius: 16,
-    backgroundColor: colors.surfaceElevated,
-    borderWidth: 1,
-    borderColor: colors.borderDefault,
-  },
-  smsBankRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  smsBankName: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  smsBalDesc: {
-    fontSize: 11.5,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-  recBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: borderRadius.pill,
-  },
-  recBadgeSuccess: {
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
-  },
-  recBadgeMismatch: {
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
-  },
-  recBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.4,
-  },
-  smsDivider: {
-    height: 1,
-    backgroundColor: colors.borderDefault,
-    marginVertical: spacing.sm,
-  },
-  simHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.xs,
-  },
-  simSubtitle: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.textTertiary,
-    letterSpacing: 0.6,
-  },
-  simScroll: {
-    gap: 8,
-    paddingVertical: 4,
-  },
-  simFixtureCard: {
-    width: 175,
-    padding: 10,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderWidth: 1,
-    borderColor: colors.borderDefault,
-  },
-  simFixtureCardNeg: {
-    borderColor: 'rgba(239, 68, 68, 0.25)',
-    backgroundColor: 'rgba(239, 68, 68, 0.03)',
-  },
-  simCardTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  simSender: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  simTag: {
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 4,
-    backgroundColor: 'rgba(58, 130, 238, 0.15)',
-  },
-  simTagNeg: {
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-  },
-  simTagText: {
-    fontSize: 8.5,
-    fontWeight: '700',
-    color: colors.accent,
-  },
-  simTagTextNeg: {
-    color: '#EF4444',
-  },
-  simBodySnippet: {
-    fontSize: 10,
-    color: colors.textSecondary,
-    lineHeight: 14,
   },
 });

@@ -1,38 +1,57 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
-import { Text, TextStyle, StyleProp, View, StyleSheet, Platform } from 'react-native';
+import { Text, TextStyle, StyleProp, StyleSheet, Platform } from 'react-native';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { colors } from '../../theme';
 
 export interface DecryptedTextProps {
+  /** Target text to decrypt into (e.g. "₹24,300.00") */
   text: string;
+  /** Scramble interval in milliseconds (default: 35ms) */
   speed?: number;
+  /** Number of scramble iterations per character before locking (default: 8) */
   maxIterations?: number;
+  /** Whether to scramble and reveal characters sequentially (default: true) */
   sequential?: boolean;
+  /** Direction to reveal characters from ('start' | 'end' | 'center', default: 'start') */
   revealDirection?: 'start' | 'end' | 'center';
+  /** If true, only shuffles characters present in target text (default: false) */
   useOriginalCharsOnly?: boolean;
+  /** Glyphs pool used for scrambling */
   characters?: string;
+  /** When to trigger animation ('mount' | 'manual', default: 'mount') */
   animateOn?: 'mount' | 'manual';
+  /** Whether animation is triggered when animateOn='manual' (default: true) */
   isTriggered?: boolean;
+  /** Callback fired when decryption resolves all characters */
+  onDecryptionComplete?: () => void;
+  /** Callback alias for backward compatibility */
   onAnimationComplete?: () => void;
+  /** Text style for the root container */
   style?: StyleProp<TextStyle>;
+  /** Web class name placeholder for react-bits parity */
+  encryptedClassName?: string;
+  /** Style applied to encrypted/scrambling characters (e.g. accent glow) */
   encryptedStyle?: StyleProp<TextStyle>;
+  /** Style applied to resolved/decrypted characters */
   revealedStyle?: StyleProp<TextStyle>;
 }
 
-const DEFAULT_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+~|}{[]:;?><';
+const DEFAULT_CHARACTERS = '!@#$%^&*0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 export const DecryptedText: React.FC<DecryptedTextProps> = ({
   text,
-  speed = 40,
-  maxIterations = 12,
+  speed = 35,
+  maxIterations = 8,
   sequential = true,
   revealDirection = 'start',
   useOriginalCharsOnly = false,
-  characters = DEFAULT_CHARS,
+  characters = DEFAULT_CHARACTERS,
   animateOn = 'mount',
   isTriggered = true,
+  onDecryptionComplete,
   onAnimationComplete,
   style,
+  encryptedClassName,
   encryptedStyle,
   revealedStyle,
 }) => {
@@ -40,29 +59,23 @@ export const DecryptedText: React.FC<DecryptedTextProps> = ({
   const [displayText, setDisplayText] = useState<string>(text);
   const [revealedIndices, setRevealedIndices] = useState<Set<number>>(new Set());
   const [isFinished, setIsFinished] = useState<boolean>(false);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const onDecryptionCompleteRef = useRef(onDecryptionComplete);
+  onDecryptionCompleteRef.current = onDecryptionComplete;
+  const onAnimationCompleteRef = useRef(onAnimationComplete);
+  onAnimationCompleteRef.current = onAnimationComplete;
+
+  // Available characters pool
   const availableChars = useMemo<string[]>(() => {
     if (useOriginalCharsOnly) {
-      return Array.from(new Set(text.split(''))).filter((char) => char !== ' ');
+      const unique = Array.from(new Set(text.split(''))).filter((char) => char !== ' ');
+      return unique.length > 0 ? unique : DEFAULT_CHARACTERS.split('');
     }
-    return characters.split('');
+    return characters.length > 0 ? characters.split('') : DEFAULT_CHARACTERS.split('');
   }, [useOriginalCharsOnly, text, characters]);
 
-  const shuffleText = useCallback(
-    (originalText: string, currentRevealed: Set<number>) => {
-      return originalText
-        .split('')
-        .map((char, i) => {
-          if (char === ' ') return ' ';
-          if (currentRevealed.has(i)) return originalText[i];
-          return availableChars[Math.floor(Math.random() * availableChars.length)] || '*';
-        })
-        .join('');
-    },
-    [availableChars]
-  );
-
+  // Compute sequence of indices to reveal
   const computeOrder = useCallback(
     (len: number): number[] => {
       const order: number[] = [];
@@ -76,7 +89,8 @@ export const DecryptedText: React.FC<DecryptedTextProps> = ({
         for (let i = len - 1; i >= 0; i--) order.push(i);
         return order;
       }
-      // center reveal
+
+      // 'center' reveal: start in the middle and radiate outwards
       const middle = Math.floor(len / 2);
       let offset = 0;
       while (order.length < len) {
@@ -94,62 +108,122 @@ export const DecryptedText: React.FC<DecryptedTextProps> = ({
     [revealDirection]
   );
 
+  // Scramble text with random glyphs for unrevealed slots
+  const generateScrambled = useCallback(
+    (originalText: string, currentRevealed: Set<number>) => {
+      const len = originalText.length;
+      let result = '';
+      for (let i = 0; i < len; i++) {
+        const char = originalText[i];
+        if (char === ' ') {
+          result += ' ';
+        } else if (currentRevealed.has(i)) {
+          result += char;
+        } else {
+          const randomChar =
+            availableChars[Math.floor(Math.random() * availableChars.length)] || '*';
+          result += randomChar;
+        }
+      }
+      return result;
+    },
+    [availableChars]
+  );
+
   useEffect(() => {
-    if (isReducedMotion) {
+    // If reduced motion is preferred or text is empty, reveal instantly
+    if (isReducedMotion || !text) {
       setDisplayText(text);
       setIsFinished(true);
-      onAnimationComplete?.();
+      setRevealedIndices(new Set(Array.from({ length: text.length }, (_, i) => i)));
+      onDecryptionCompleteRef.current?.();
+      onAnimationCompleteRef.current?.();
       return;
     }
 
+    // Manual trigger check
     if (animateOn === 'manual' && !isTriggered) {
       setDisplayText(text);
+      setIsFinished(true);
       return;
+    }
+
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
     }
 
     const order = computeOrder(text.length);
-    let stepCount = 0;
-    const currentRevealed = new Set<number>();
-    let currentIteration = 0;
+    const activeRevealed = new Set<number>();
+    let currentStep = 0;
+    let stepIteration = 0;
+    let globalIteration = 0;
 
-    if (intervalRef.current) clearInterval(intervalRef.current);
+    // Immediately scramble initial frame
+    setIsFinished(false);
+    setRevealedIndices(new Set());
+    setDisplayText(generateScrambled(text, activeRevealed));
 
     intervalRef.current = setInterval(() => {
       if (sequential) {
-        if (stepCount < order.length) {
-          currentRevealed.add(order[stepCount]);
-          stepCount++;
-          setRevealedIndices(new Set(currentRevealed));
-          setDisplayText(shuffleText(text, currentRevealed));
-        } else {
+        stepIteration++;
+
+        // Lock current character when iterations per character reached
+        if (stepIteration >= Math.max(1, maxIterations)) {
+          if (currentStep < order.length) {
+            activeRevealed.add(order[currentStep]);
+            currentStep++;
+            stepIteration = 0;
+
+            // Automatically resolve adjacent spaces without waiting
+            while (currentStep < order.length && text[order[currentStep]] === ' ') {
+              activeRevealed.add(order[currentStep]);
+              currentStep++;
+            }
+          }
+        }
+
+        const newScrambled = generateScrambled(text, activeRevealed);
+        setRevealedIndices(new Set(activeRevealed));
+        setDisplayText(newScrambled);
+
+        // Completion condition
+        if (currentStep >= order.length || activeRevealed.size >= text.length) {
           if (intervalRef.current) clearInterval(intervalRef.current);
           setDisplayText(text);
           setIsFinished(true);
-          onAnimationComplete?.();
+          setRevealedIndices(new Set(Array.from({ length: text.length }, (_, i) => i)));
+          onDecryptionCompleteRef.current?.();
+          onAnimationCompleteRef.current?.();
         }
       } else {
-        currentIteration++;
-        setDisplayText(shuffleText(text, currentRevealed));
-        if (currentIteration >= maxIterations) {
+        // Non-sequential scramble
+        globalIteration++;
+        const newScrambled = generateScrambled(text, activeRevealed);
+        setDisplayText(newScrambled);
+
+        if (globalIteration >= Math.max(1, maxIterations)) {
           if (intervalRef.current) clearInterval(intervalRef.current);
           setDisplayText(text);
           setIsFinished(true);
-          onAnimationComplete?.();
+          setRevealedIndices(new Set(Array.from({ length: text.length }, (_, i) => i)));
+          onDecryptionCompleteRef.current?.();
+          onAnimationCompleteRef.current?.();
         }
       }
-    }, speed);
+    }, Math.max(10, speed));
 
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
     };
   }, [
     text,
     speed,
     maxIterations,
     sequential,
-    revealDirection,
-    shuffleText,
     computeOrder,
+    generateScrambled,
     animateOn,
     isTriggered,
     isReducedMotion,
@@ -161,7 +235,7 @@ export const DecryptedText: React.FC<DecryptedTextProps> = ({
         const isRevealed = isFinished || revealedIndices.has(index);
         return (
           <Text
-            key={`${index}-${char}`}
+            key={index}
             style={[
               styles.glyph,
               isRevealed
@@ -191,6 +265,6 @@ const styles = StyleSheet.create({
   },
   encryptedGlyph: {
     color: colors.accent,
-    opacity: 0.75,
+    opacity: 0.85,
   },
 });

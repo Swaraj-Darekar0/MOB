@@ -9,6 +9,7 @@ import {
   Alert,
   TouchableOpacity,
   useWindowDimensions,
+  AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -26,6 +27,7 @@ export default function BucketsDashboardScreen() {
   const {
     envelopes,
     unclassifiedTransactions,
+    unallocatedBalance,
     assignTransactionToBucket,
     loadInitialData,
     createCustomEnvelope,
@@ -54,8 +56,42 @@ export default function BucketsDashboardScreen() {
   const [bucketToDelete, setBucketToDelete] = useState<Envelope | null>(null);
   const [deleteActivityOption, setDeleteActivityOption] = useState<boolean>(false);
 
+  // Auto-Open Review Queue on App Launch / Cold Start or Background Resume
+  const appState = useRef(AppState.currentState);
+  const hasAutoOpenedOnLaunch = useRef(false);
+
   useEffect(() => {
     loadInitialData();
+  }, []);
+
+  // When unclassified transactions are loaded or change, trigger auto-open on initial launch
+  useEffect(() => {
+    if (!hasAutoOpenedOnLaunch.current && unclassifiedCount > 0) {
+      hasAutoOpenedOnLaunch.current = true;
+      setShowReviewQueue(true);
+    }
+  }, [unclassifiedCount]);
+
+  // When returning from background/closed state, check for pending reviews and auto-open
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (
+        appState.current.match(/inactive|background/) &&
+        nextAppState === 'active'
+      ) {
+        loadInitialData().then(() => {
+          const currentCount = useAppStore.getState().unclassifiedTransactions?.length || 0;
+          if (currentCount > 0) {
+            setShowReviewQueue(true);
+          }
+        });
+      }
+      appState.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
   }, []);
 
   const onRefresh = async () => {
@@ -145,15 +181,17 @@ export default function BucketsDashboardScreen() {
           )}
         </TouchableOpacity>
 
-        {/* Center: New Bucket Creation Button */}
-        <TouchableOpacity
-          style={styles.centerNewBucketBtn}
-          activeOpacity={0.75}
-          onPress={() => setShowNewBucket(true)}
-        >
-          <Plus size={14} color="#FFFFFF" strokeWidth={2.5} />
-          <Text style={styles.centerNewBucketBtnText}>New Bucket</Text>
-        </TouchableOpacity>
+        {/* Center: Exact Optical Horizontal Center Anchor */}
+        <View style={styles.centerButtonAnchor} pointerEvents="box-none">
+          <TouchableOpacity
+            style={styles.centerNewBucketBtn}
+            activeOpacity={0.75}
+            onPress={() => setShowNewBucket(true)}
+          >
+            <Plus size={14} color="#FFFFFF" strokeWidth={2.5} />
+            <Text style={styles.centerNewBucketBtnText}>New Bucket</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Right: View Switcher with Dynamic Rubber Squash-and-Stretch Animation */}
         <RubberSegmentBar<'grid' | 'stack'>
@@ -384,6 +422,7 @@ export default function BucketsDashboardScreen() {
         onClose={() => setShowReviewQueue(false)}
         unclassifiedItems={unclassifiedTransactions || []}
         envelopes={envelopes}
+        unallocatedBalance={unallocatedBalance}
         onAssignBucket={async (txId, envId, catId) => {
           await assignTransactionToBucket(txId, envId, catId);
         }}
@@ -407,6 +446,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.borderDefault,
     backgroundColor: colors.surfaceBase,
+    position: 'relative',
+    minHeight: 56,
+  },
+  centerButtonAnchor: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   reviewQueueBtn: {
     width: 38,

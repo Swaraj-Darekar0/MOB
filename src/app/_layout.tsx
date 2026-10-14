@@ -2,12 +2,18 @@ import 'react-native-gesture-handler';
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { configureReanimatedLogger } from 'react-native-reanimated';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { colors } from '../theme';
 import { useAppStore } from '../store/useAppStore';
 import { DecryptedSplashOverlay } from '../components/common/DecryptedSplashOverlay';
+
+// Reanimated 4 configuration: suppress strict-mode render warnings
+configureReanimatedLogger({
+  strict: false,
+});
 
 // Keep the native static splash screen visible until our app is ready
 SplashScreen.preventAutoHideAsync().catch(() => {});

@@ -17,3 +17,4 @@ export * from './SlideCommit';
 export * from './BucketStack';
 export * from './MorphingDeck';
 export * from './PixelCard';
+export * from './ThoughtLine';

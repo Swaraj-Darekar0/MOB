@@ -68,8 +68,6 @@ export function RubberSegmentBar<T extends string = string>({
   const onContainerLayout = (e: LayoutChangeEvent) => {
     const width = e.nativeEvent.layout.width;
     setContainerWidth(width);
-    const initialSlotW = (width - inset * 2) / numTabs;
-    translateX.value = inset + activeIndex * initialSlotW;
   };
 
   useEffect(() => {

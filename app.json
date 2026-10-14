@@ -14,26 +14,13 @@
     },
     "android": {
       "package": "com.mob.virtualenvelope",
+      "versionCode": 2,
       "backgroundColor": "#060606",
       "adaptiveIcon": {
         "backgroundColor": "#060606",
         "foregroundImage": "./assets/images/android-icon-foreground.png"
       },
       "predictiveBackGestureEnabled": false,
-      "intentFilters": [
-        {
-          "action": "VIEW",
-          "data": [
-            {
-              "scheme": "mob"
-            }
-          ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
-        }
-      ],
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",

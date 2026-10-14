@@ -17,14 +17,24 @@ import {
   resolveGoalShortfall,
   getEnvelopes,
   createEnvelope,
+  allocateMoney,
 } from '../db/database';
 import { toRupees, toPaise, subPaise, addPaise } from '../../utils/money';
 import {
   calculateInstallmentAmount,
   advanceNextDueDate,
+  analyzeCashFlowHabits,
+  CashFlowHabitAnalysis,
+  CadenceInsight,
 } from './goalCalculations';
 
-export { calculateInstallmentAmount, advanceNextDueDate };
+export {
+  calculateInstallmentAmount,
+  advanceNextDueDate,
+  analyzeCashFlowHabits,
+  CashFlowHabitAnalysis,
+  CadenceInsight,
+};
 
 /**
  * Creates a Goal along with its dedicated Goal Bucket envelope.
@@ -247,22 +257,29 @@ export function moveMoneyToGoal(
   const destGoal = getGoalById(destinationGoalId);
   if (!destGoal) throw new Error(`Destination goal ${destinationGoalId} not found`);
 
-  const envelopes = getEnvelopes();
-  const sourceEnv = envelopes.find((e) => e.id === sourceEnvelopeId);
-  if (!sourceEnv) throw new Error(`Source envelope ${sourceEnvelopeId} not found`);
-
   const amountRupees = toRupees(amountPaise);
+  const isFromUnallocated = sourceEnvelopeId === 'unallocated';
+
+  const envelopes = getEnvelopes();
+  const sourceEnv = !isFromUnallocated ? envelopes.find((e) => e.id === sourceEnvelopeId) : null;
+  if (!isFromUnallocated && !sourceEnv) throw new Error(`Source envelope ${sourceEnvelopeId} not found`);
+
+  const sourceName = isFromUnallocated ? 'Unallocated Cash' : sourceEnv?.name || 'Bucket';
 
   db.withTransactionSync(() => {
-    // 1. Transfer funds between envelopes
-    db.runSync(
-      'UPDATE envelopes SET currentAmount = currentAmount - ? WHERE id = ?',
-      [amountRupees, sourceEnvelopeId]
-    );
-    db.runSync(
-      'UPDATE envelopes SET currentAmount = currentAmount + ? WHERE id = ?',
-      [amountRupees, destGoal.envelopeId]
-    );
+    // 1. Transfer funds
+    if (isFromUnallocated) {
+      allocateMoney(null, destGoal.envelopeId, amountRupees);
+    } else {
+      db.runSync(
+        'UPDATE envelopes SET currentAmount = currentAmount - ? WHERE id = ?',
+        [amountRupees, sourceEnvelopeId]
+      );
+      db.runSync(
+        'UPDATE envelopes SET currentAmount = currentAmount + ? WHERE id = ?',
+        [amountRupees, destGoal.envelopeId]
+      );
+    }
 
     // 2. Update Destination Goal Balance
     const newDestBalance = addPaise(destGoal.currentBalancePaise, amountPaise);
@@ -285,22 +302,24 @@ export function moveMoneyToGoal(
     });
 
     // 3. If source envelope belongs to another Goal, update that goal as well
-    const allGoals = getGoals();
-    const sourceGoal = allGoals.find((g) => g.envelopeId === sourceEnvelopeId);
-    if (sourceGoal) {
-      const newSourceBalance = Math.max(0, subPaise(sourceGoal.currentBalancePaise, amountPaise));
-      const newSourceInstallment = calculateInstallmentAmount(
-        sourceGoal.targetAmountPaise,
-        newSourceBalance,
-        sourceGoal.deadline,
-        sourceGoal.cadence,
-        todayIso
-      );
+    if (!isFromUnallocated) {
+      const allGoals = getGoals();
+      const sourceGoal = allGoals.find((g) => g.envelopeId === sourceEnvelopeId);
+      if (sourceGoal) {
+        const newSourceBalance = Math.max(0, subPaise(sourceGoal.currentBalancePaise, amountPaise));
+        const newSourceInstallment = calculateInstallmentAmount(
+          sourceGoal.targetAmountPaise,
+          newSourceBalance,
+          sourceGoal.deadline,
+          sourceGoal.cadence,
+          todayIso
+        );
 
-      updateGoal(sourceGoal.id, {
-        currentBalancePaise: newSourceBalance,
-        installmentAmountPaise: newSourceInstallment,
-      });
+        updateGoal(sourceGoal.id, {
+          currentBalancePaise: newSourceBalance,
+          installmentAmountPaise: newSourceInstallment,
+        });
+      }
     }
 
     // 4. Resolve pending shortfalls for destination goal
@@ -310,18 +329,20 @@ export function moveMoneyToGoal(
     );
 
     // 5. Audit Ledger Event
-    db.runSync(
-      `INSERT INTO ledger_events (id, type, amount, sourceEnvelopeId, destinationEnvelopeId, note, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        generateId('event'),
-        'MOVE_BETWEEN_ENVELOPES',
-        amountRupees,
-        sourceEnvelopeId,
-        destGoal.envelopeId,
-        `Transferred to goal: ${destGoal.name} (Source: ${sourceEnv.name})`,
-        new Date().toISOString(),
-      ]
-    );
+    if (!isFromUnallocated) {
+      db.runSync(
+        `INSERT INTO ledger_events (id, type, amount, sourceEnvelopeId, destinationEnvelopeId, note, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          generateId('event'),
+          'MOVE_BETWEEN_ENVELOPES',
+          amountRupees,
+          sourceEnvelopeId,
+          destGoal.envelopeId,
+          `Transferred to goal: ${destGoal.name} (Source: ${sourceName})`,
+          new Date().toISOString(),
+        ]
+      );
+    }
   });
 }

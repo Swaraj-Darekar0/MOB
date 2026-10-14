@@ -18,6 +18,7 @@ import {
 } from '../types';
 import * as database from '../services/db/database';
 import { processIncomingSms, IngestionResult } from '../services/sms/ingestion/smsIngestionService';
+import { readDeviceSmsInbox } from '../services/sms/native/smsReader';
 import { reconcileBalance } from '../services/sms/reconciliation/balanceReconciler';
 import {
   createGoalWithDedicatedBucket,
@@ -85,6 +86,7 @@ export interface AppState {
     responseDetails?: any
   ) => Promise<PaymentTransaction>;
   ingestSmsMessage: (body: string, sender: string, timestamp?: number) => Promise<IngestionResult>;
+  syncLatestDeviceSms: (maxCount?: number) => Promise<{ processedCount: number; totalScanned: number }>;
   reconcileTrackedBalance: () => Promise<BalanceReconciliationResult>;
   teachMerchantRule: (
     targetVpaOrMerchant: string,
@@ -213,8 +215,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   ) => {
     set({ isLoading: true });
     try {
+      const cleanAvatar = avatarUri && avatarUri.trim().length > 0 ? avatarUri.trim() : undefined;
       // 1. Save or update user profile
-      database.saveUserProfile(username, avatarUri);
+      database.saveUserProfile(username, cleanAvatar);
 
       if (phoneNumber) {
         database.saveLocalProfile(phoneNumber);
@@ -441,6 +444,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     return result;
   },
 
+  syncLatestDeviceSms: async (maxCount: number = 50) => {
+    const currentTxs = get().transactions;
+    const latestTx = currentTxs.length > 0 ? currentTxs[0] : null;
+    const sinceTimestamp = latestTx ? new Date(latestTx.createdAt).getTime() : 0;
+
+    const scanResult = await readDeviceSmsInbox({ maxCount, sinceTimestamp });
+    const newMessages = scanResult.messages;
+
+    let processedCount = 0;
+    // Process chronologically from oldest to newest
+    const sorted = [...newMessages].sort((a, b) => a.timestamp - b.timestamp);
+    for (const msg of sorted) {
+      const res = processIncomingSms(msg.body, msg.sender, msg.timestamp);
+      if (res.status === 'PROCESSED') {
+        processedCount++;
+      }
+    }
+
+    if (processedCount > 0) {
+      const updated = getUpdatedStoreState();
+      set({ ...updated });
+    }
+
+    return { processedCount, totalScanned: newMessages.length };
+  },
+
   reconcileTrackedBalance: async () => {
     const primary = database.getPrimaryAccount();
     const result = reconcileBalance(
@@ -478,10 +507,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     teachRule: boolean = true
   ) => {
     const tx = database.getTransactionById(transactionId);
+    const effectiveCategory: SystemCategory =
+      categoryId && categoryId !== 'UNCLASSIFIED'
+        ? categoryId
+        : tx?.categoryId && tx.categoryId !== 'UNCLASSIFIED'
+        ? (tx.categoryId as SystemCategory)
+        : 'OTHER';
+
     database.updateTransactionEnvelope(
       transactionId,
       envelopeId,
-      categoryId || (tx?.categoryId as SystemCategory) || 'OTHER'
+      effectiveCategory
     );
 
     if (teachRule && tx) {
@@ -490,7 +526,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         database.saveMerchantRule({
           normalizedVpa: tx.payeeVpa ? tx.payeeVpa.toLowerCase().trim() : undefined,
           normalizedMerchant: tx.merchantName ? tx.merchantName.toLowerCase().trim() : undefined,
-          categoryId: categoryId || (tx.categoryId as SystemCategory) || 'OTHER',
+          categoryId: effectiveCategory,
           envelopeId,
           source: 'USER_RULE',
           priority: 10,

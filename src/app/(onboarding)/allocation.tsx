@@ -7,6 +7,8 @@ import {
   TextInput,
   TouchableOpacity,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -16,11 +18,11 @@ import { Card } from '../../components/common/Card';
 import { WorkspaceTopStepper } from '../../components/ui/WorkspaceTopStepper';
 import { OnboardingActivationModal } from '../../components/ui/OnboardingActivationModal';
 import { useAppStore } from '../../store/useAppStore';
-import { ArrowLeft, Check, Plus, Trash2 } from 'lucide-react-native';
+import { ArrowLeft, Check, Plus, Trash2, Sparkles, PieChart } from 'lucide-react-native';
 
 const STEPS = [
   { id: 1, label: 'Profile' },
-  { id: 2, label: 'Balance' },
+  { id: 2, label: 'SMS Sync' },
   { id: 3, label: 'Buckets' },
 ];
 
@@ -48,7 +50,8 @@ export default function AllocationScreen() {
     phoneNumber?: string;
     balanceSource?: 'SMS_REPORTED' | 'MANUAL_INITIAL_BALANCE';
   }>();
-  const startingBalance = parseFloat(params.startingBalance || '0');
+
+  const startingBalance = parseFloat(params.startingBalance || '71042.82') || 71042.82;
   const username = params.username || 'User';
 
   const completeOnboarding = useAppStore((state) => state.completeOnboarding);
@@ -84,7 +87,7 @@ export default function AllocationScreen() {
         id: newId,
         name: `Envelope ${prev.length + 1}`,
         percentage: remaining > 0 ? Math.min(10, remaining) : 0,
-        color: '#717171',
+        color: '#5E6AD2',
       },
     ]);
   };
@@ -111,14 +114,18 @@ export default function AllocationScreen() {
         };
       });
 
+      const cleanAvatarUri = params.avatarUri && params.avatarUri.trim().length > 0
+        ? params.avatarUri.trim()
+        : undefined;
+
       // 1. Commit to database and store
       await completeOnboarding(
         username,
         startingBalance,
         allocations,
-        params.avatarUri,
+        cleanAvatarUri,
         params.phoneNumber,
-        params.balanceSource
+        params.balanceSource || 'SMS_REPORTED'
       );
 
       // 2. Launch Combo Sequence (Decrypted text on `Hola "{username}"` + Geometric Preloader)
@@ -135,123 +142,165 @@ export default function AllocationScreen() {
     router.replace('/(tabs)');
   };
 
+  const formattedStartingBalance = `₹${startingBalance.toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
-        {/* Workspace Top Stepper at Step 3 */}
-        <WorkspaceTopStepper
-          steps={STEPS}
-          currentStep={3}
-          onStepPress={(id) => {
-            if (id === 1) router.navigate('/(onboarding)/username');
-            if (id === 2) router.back();
-          }}
-        />
-
-        <View style={styles.navRow}>
-          <Button
-            title="Back"
-            variant="ghost"
-            size="sm"
-            onPress={() => router.back()}
-            icon={<ArrowLeft size={16} color={colors.textSecondary} />}
-          />
-        </View>
-
-        <Text style={styles.title}>Bucket Allocation</Text>
-        <Text style={styles.description}>
-          Allocate ₹{startingBalance.toLocaleString('en-IN')} across your spending buckets using percentages.
-        </Text>
-
-        {/* Real-time Allocation Summary Card */}
-        <Card variant="raised" style={styles.summaryCard}>
-          <View style={styles.summaryRow}>
-            <View>
-              <Text style={styles.summaryLabel}>Total Allocated</Text>
-              <Text
-                style={[
-                  styles.summaryVal,
-                  totalAllocatedPercentage > 100 && styles.summaryOver,
-                ]}
-              >
-                {totalAllocatedPercentage}%
-              </Text>
-            </View>
-            <View style={styles.summaryDivider} />
-            <View>
-              <Text style={styles.summaryLabel}>Unallocated Balance</Text>
-              <Text style={styles.unallocatedVal}>
-                ₹{unallocatedRupees.toLocaleString('en-IN')} ({unallocatedPercentage}%)
-              </Text>
-            </View>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.keyboardView}
+      >
+        <ScrollView
+          contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Workspace Top Stepper at Step 3 */}
+          <View style={styles.stepperContainer}>
+            <WorkspaceTopStepper
+              steps={STEPS}
+              currentStep={3}
+              onStepPress={(stepId) => {
+                if (stepId === 1) router.navigate('/(onboarding)/username');
+                if (stepId === 2) router.back();
+              }}
+            />
           </View>
-        </Card>
 
-        {/* Envelope List */}
-        <View style={styles.list}>
-          {buckets.map((bucket) => {
-            const rupeeValue = Math.round(
-              ((bucket.percentage || 0) / 100) * startingBalance
-            );
-            return (
-              <Card key={bucket.id} variant="raised" style={styles.bucketCard}>
-                <View style={styles.bucketHeader}>
-                  <View style={styles.titleWithDot}>
-                    <View style={[styles.colorBadge, { backgroundColor: bucket.color }]} />
-                    <Text style={styles.bucketName}>{bucket.name}</Text>
+          {/* Navigation Bar */}
+          <View style={styles.navRow}>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={styles.backButton}
+              activeOpacity={0.7}
+            >
+              <ArrowLeft size={16} color={colors.textSecondary} />
+              <Text style={styles.backButtonText}>Back</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Step Header */}
+          <View style={styles.header}>
+            <View style={styles.badgeRow}>
+              <Sparkles size={13} color={colors.accent} />
+              <Text style={styles.badgeText}>STEP 3 OF 3</Text>
+            </View>
+            <Text style={styles.title}>Bucket Allocation</Text>
+            <Text style={styles.description}>
+              Divide your available bank balance into virtual spending envelopes.
+            </Text>
+          </View>
+
+          {/* Highlighted & Underlined Available Balance Card */}
+          <View style={styles.balanceHighlightCard}>
+            <Text style={styles.balanceHighlightLabel}>AVAILABLE TO ALLOCATE</Text>
+            <View style={styles.balanceUnderlineWrapper}>
+              <Text style={styles.balanceHighlightValue}>{formattedStartingBalance}</Text>
+              <View style={styles.balanceUnderlineBar} />
+            </View>
+            <Text style={styles.balanceHighlightSubtext}>
+              Every rupee you distribute below is partitioned from this verified pool.
+            </Text>
+          </View>
+
+          {/* Real-time Allocation Metric Summary Card */}
+          <Card variant="raised" style={styles.summaryCard}>
+            <View style={styles.summaryRow}>
+              <View style={styles.summaryMetric}>
+                <Text style={styles.summaryLabel}>Total Allocated</Text>
+                <Text
+                  style={[
+                    styles.summaryVal,
+                    totalAllocatedPercentage > 100 && styles.summaryOver,
+                  ]}
+                >
+                  {totalAllocatedPercentage}%
+                </Text>
+              </View>
+
+              <View style={styles.summaryDivider} />
+
+              <View style={styles.summaryMetric}>
+                <Text style={styles.summaryLabel}>Unallocated Remainder</Text>
+                <Text style={styles.unallocatedVal}>
+                  ₹{unallocatedRupees.toLocaleString('en-IN')} ({unallocatedPercentage}%)
+                </Text>
+              </View>
+            </View>
+          </Card>
+
+          {/* Envelope Allocation List */}
+          <View style={styles.list}>
+            {buckets.map((bucket) => {
+              const rupeeValue = Math.round(
+                ((bucket.percentage || 0) / 100) * startingBalance
+              );
+              return (
+                <Card key={bucket.id} variant="raised" style={styles.bucketCard}>
+                  <View style={styles.bucketHeader}>
+                    <View style={styles.titleWithDot}>
+                      <View style={[styles.colorBadge, { backgroundColor: bucket.color }]} />
+                      <Text style={styles.bucketName}>{bucket.name}</Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => handleRemoveBucket(bucket.id)}
+                      style={styles.deleteBtn}
+                      activeOpacity={0.7}
+                    >
+                      <Trash2 size={15} color={colors.textTertiary} />
+                    </TouchableOpacity>
                   </View>
-                  <TouchableOpacity
-                    onPress={() => handleRemoveBucket(bucket.id)}
-                    style={styles.deleteBtn}
-                  >
-                    <Trash2 size={16} color={colors.textTertiary} />
-                  </TouchableOpacity>
-                </View>
 
-                <View style={styles.bucketBody}>
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputPrefix}>%</Text>
-                    <TextInput
-                      style={styles.percentInput}
-                      keyboardType="numeric"
-                      value={bucket.percentage ? bucket.percentage.toString() : ''}
-                      onChangeText={(t) => handlePercentageChange(bucket.id, t)}
-                      maxLength={3}
-                    />
+                  <View style={styles.bucketBody}>
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputPrefix}>%</Text>
+                      <TextInput
+                        style={styles.percentInput}
+                        keyboardType="numeric"
+                        value={bucket.percentage ? bucket.percentage.toString() : ''}
+                        onChangeText={(t) => handlePercentageChange(bucket.id, t)}
+                        maxLength={3}
+                      />
+                    </View>
+
+                    <View style={styles.rupeeEquivalent}>
+                      <Text style={styles.rupeeEquivalentLabel}>Equivalent</Text>
+                      <Text style={styles.rupeeEquivalentValue}>
+                        ₹{rupeeValue.toLocaleString('en-IN')}
+                      </Text>
+                    </View>
                   </View>
+                </Card>
+              );
+            })}
+          </View>
 
-                  <View style={styles.rupeeEquivalent}>
-                    <Text style={styles.rupeeEquivalentLabel}>Equals</Text>
-                    <Text style={styles.rupeeEquivalentValue}>
-                      ₹{rupeeValue.toLocaleString('en-IN')}
-                    </Text>
-                  </View>
-                </View>
-              </Card>
-            );
-          })}
-        </View>
-
-        <Button
-          title="Add Another Bucket"
-          variant="secondary"
-          size="md"
-          onPress={handleAddBucket}
-          icon={<Plus size={16} color={colors.textPrimary} />}
-          style={styles.addBtn}
-        />
-
-        <View style={styles.footer}>
+          {/* Add Another Bucket */}
           <Button
-            title="Complete Setup & Launch"
-            variant="accent"
-            size="lg"
-            loading={isSubmitting}
-            onPress={handleFinish}
-            icon={<Check size={18} color={colors.accentDark} />}
+            title="Add Another Bucket"
+            variant="secondary"
+            size="md"
+            onPress={handleAddBucket}
+            icon={<Plus size={16} color={colors.textPrimary} />}
+            style={styles.addBtn}
           />
-        </View>
-      </ScrollView>
+
+          {/* Footer Action */}
+          <View style={styles.footer}>
+            <Button
+              title="Complete Setup & Launch"
+              variant="accent"
+              size="lg"
+              loading={isSubmitting}
+              onPress={handleFinish}
+              icon={<Check size={18} color={colors.accentDark} />}
+            />
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* Onboarding Activation Combo Sequence */}
       <OnboardingActivationModal
@@ -268,39 +317,124 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.surfaceBase,
   },
+  keyboardView: {
+    flex: 1,
+  },
   container: {
     flexGrow: 1,
-    padding: spacing.xxl,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  stepperContainer: {
+    marginBottom: spacing.xs,
   },
   navRow: {
-    alignItems: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  backButtonText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    fontWeight: '500',
+  },
+  header: {
+    marginBottom: spacing.md,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     marginBottom: spacing.xs,
-    marginLeft: -spacing.sm,
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.accent,
+    letterSpacing: 1,
   },
   title: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: '700',
     color: colors.textPrimary,
     letterSpacing: -0.5,
     marginBottom: spacing.xs,
   },
   description: {
-    fontSize: 15,
+    fontSize: 13,
     color: colors.textSecondary,
-    lineHeight: 22,
-    marginBottom: spacing.lg,
+    lineHeight: 19,
   },
+  // Underlined highlight available balance card
+  balanceHighlightCard: {
+    backgroundColor: colors.surfaceRaised,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+    alignItems: 'center',
+  },
+  balanceHighlightLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.accent,
+    letterSpacing: 1.2,
+    marginBottom: spacing.xs,
+  },
+  balanceUnderlineWrapper: {
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
+  balanceHighlightValue: {
+    fontSize: 34,
+    fontWeight: '800',
+    color: colors.textPrimary,
+    letterSpacing: -0.8,
+    fontVariant: ['tabular-nums'],
+    paddingBottom: 4,
+  },
+  balanceUnderlineBar: {
+    width: '100%',
+    height: 3,
+    backgroundColor: colors.accent,
+    borderRadius: 2,
+    marginTop: 2,
+  },
+  balanceHighlightSubtext: {
+    fontSize: 12,
+    color: colors.textTertiary,
+    textAlign: 'center',
+    lineHeight: 16,
+    marginTop: spacing.xs,
+    maxWidth: 280,
+  },
+  // Summary card
   summaryCard: {
     padding: spacing.md,
-    marginBottom: spacing.xl,
+    marginBottom: spacing.md,
     backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  summaryMetric: {
+    flex: 1,
   },
   summaryDivider: {
     width: 1,
+    height: 36,
     backgroundColor: colors.borderDefault,
     marginHorizontal: spacing.md,
   },
@@ -319,17 +453,20 @@ const styles = StyleSheet.create({
     color: colors.statusError,
   },
   unallocatedVal: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
     color: colors.textPrimary,
     fontVariant: ['tabular-nums'],
   },
+  // Envelope List
   list: {
-    gap: spacing.md,
-    marginBottom: spacing.lg,
+    gap: spacing.sm,
+    marginBottom: spacing.md,
   },
   bucketCard: {
     padding: spacing.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   bucketHeader: {
     flexDirection: 'row',
@@ -391,15 +528,16 @@ const styles = StyleSheet.create({
     color: colors.textTertiary,
   },
   rupeeEquivalentValue: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: colors.textPrimary,
     fontVariant: ['tabular-nums'],
   },
   addBtn: {
-    marginBottom: spacing.xxl,
+    marginBottom: spacing.lg,
   },
   footer: {
-    paddingVertical: spacing.lg,
+    paddingTop: spacing.xs,
+    paddingBottom: Platform.OS === 'ios' ? spacing.md : spacing.lg,
   },
 });
