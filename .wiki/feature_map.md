@@ -796,26 +796,33 @@ The architecture comprises two primary unidirectional pipelines operating over a
 
 ## 11. Module 10: Settings, Profile & Telemetry
 
-### Feature 10.1: User Settings & Management
-- **Functional Role**: Allows user to edit profile, trigger inbox re-scanning, export SQLite ledger, and perform data resets.
+### Feature 10.1: User Settings & Profile Photo Lifecycle
+- **Functional Role**: Allows user to manage profile details, edit avatar photo with live preview and persistence, trigger inbox re-scanning, and perform bucket/database resets.
 - **Exact Source Code Locations**:
-  - `src/app/(tabs)/settings.tsx` (Lines 1–240)
+  - `src/app/(tabs)/settings.tsx` (Lines 1–350)
+  - `src/store/useAppStore.ts` (Lines 210–288)
+  - `src/services/db/database.ts` (Lines 280–342)
 - **Schema & State Interactions**:
-  - Edits username and avatar photo in `users` table and Zustand store.
-  - "Re-scan SMS Inbox": Triggers full inbox scan via `smsIngestionService`.
+  - Profile photo set during onboarding Step 1 (`username.tsx`) forwards across `sms-permission.tsx` and `allocation.tsx`, committing to SQLite `users` table via `saveUserProfile(username, cleanAvatar)`.
+  - In-app photo editing: Tapping pencil button on `<ReflectiveCard />` launches gallery picker and executes `updateProfileImage(uri)`, committing to SQLite via `updateUserAvatar(uri)` and refreshing Zustand `user.avatarUri`.
   - "Reset Buckets & Activity": Wipes envelopes and transactions, returning all funds to unallocated balance.
   - "Factory Reset": Completely deletes all SQLite tables and returns to onboarding.
 - **Failure Modes & Edge Cases**:
+  - *No Photo / Whitespace*: Normalizes empty or blank URIs to `undefined`, seamlessly falling back to GPU 3D pixel sculpt.
   - *Accidental Reset*: Requires double-confirmation dialog before executing data wipe.
 
 ### Feature 10.2: 3D Reflective Holographic Profile Card
-- **Functional Role**: Displays user profile with holographic specular lighting and gyroscope/touch tilt perspective.
+- **Functional Role**: Displays user profile with holographic specular lighting, full-bleed user avatar background with contrast vignette, and gyroscope/touch tilt perspective.
 - **Exact Source Code Locations**:
-  - `src/components/ui/ReflectiveCard.tsx` (Lines 1–120)
+  - `src/components/ui/ReflectiveCard.tsx` (Lines 1–395)
+  - `src/components/ui/PixelSculptImage.tsx` (Lines 1–280)
 - **Schema & State Interactions**:
-  - Uses pan responder and gyroscope shared values to tilt card container and shift linear specular gradient highlight.
+  - Resolves `effectiveAvatar = avatarUri || user?.avatarUri`.
+  - When avatar exists: renders full-bleed `<Image />` covered with dual-stop linear contrast vignette ensuring "MOB", "USER", and username remain readable.
+  - When avatar is absent: renders interactive 3D GPU Pixel Sculpt relief tiles (`PixelSculptImage`) with cyber iridescent tint overlay.
+  - Interactive touch tilt: calculates normalized coordinates on `onTouchMove` to drive Reanimated 3D perspective rotation (`rotateX`, `rotateY`, `scale`) and specular reflection sheen sweep.
 - **Failure Modes & Edge Cases**:
-  - Disables tilt on devices where accelerometer is unavailable or reduced motion is enabled.
+  - Disables continuous motion and sweeps when `useReducedMotion` is active or touch ends.
 
 ### Feature 10.3: Fullscreen Canvas Particle Dissolve Effect
 - **Functional Role**: Executes high-energy visual particle explosion overlay during database reset and major state transitions.
