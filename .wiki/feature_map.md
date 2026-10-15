@@ -828,15 +828,15 @@ The architecture comprises two primary unidirectional pipelines operating over a
   - *No Photo / Whitespace*: Normalizes empty or blank URIs to `undefined`, seamlessly falling back to GPU 3D pixel sculpt.
   - *Accidental Reset*: Requires double-confirmation dialog before executing data wipe.
 
-### Feature 10.2: 3D Reflective Holographic Profile Card
-- **Functional Role**: Displays user profile with holographic specular lighting, full-bleed user avatar background with contrast vignette, and gyroscope/touch tilt perspective.
+### Feature 10.2: 3D Reflective Holographic Profile Card & WebGL Mosaic Relief Tiles
+- **Functional Role**: Displays user profile on an interactive monolithic card with 3D WebGL mosaic relief tiles (`PixelSculptImage`), transforming user avatar photos or procedural metallic textures into tactile 3D displaced blocks with chamfered seams, bevel normals, specular shine, and real-time touch ripple physics.
 - **Exact Source Code Locations**:
-  - `src/components/ui/ReflectiveCard.tsx` (Lines 1–395)
-  - `src/components/ui/PixelSculptImage.tsx` (Lines 1–280)
+  - `src/components/ui/ReflectiveCard.tsx` (Lines 1–370)
+  - `src/components/ui/PixelSculptImage.tsx` (Lines 1–815)
 - **Schema & State Interactions**:
   - Resolves `effectiveAvatar = avatarUri || user?.avatarUri`.
-  - When avatar exists: renders full-bleed `<Image />` covered with dual-stop linear contrast vignette ensuring "MOB", "USER", and username remain readable.
-  - When avatar is absent: renders interactive 3D GPU Pixel Sculpt relief tiles (`PixelSculptImage`) with cyber iridescent tint overlay.
+  - Background surface: Renders GPU-accelerated 3D Pixel Sculpt relief tiles (`PixelSculptImage`) with `source={effectiveAvatar || ''}`. When an avatar photo exists, WebGL samples luminance at tile centers to elevate tiles into 3D relief blocks. When absent, it renders a procedural high-contrast dark metallic cyber silhouette.
+  - Interactive touch ripple: `onTouchStart` and `onTouchMove` calculate normalized UV coordinates and invoke `pixelSculptRef.current?.triggerRipple(u, v, 1.0)`, generating propagating wave ripples across the 3D mosaic tiles.
   - Interactive touch tilt: calculates normalized coordinates on `onTouchMove` to drive Reanimated 3D perspective rotation (`rotateX`, `rotateY`, `scale`) and specular reflection sheen sweep.
 - **Failure Modes & Edge Cases**:
   - Disables continuous motion and sweeps when `useReducedMotion` is active or touch ends.
