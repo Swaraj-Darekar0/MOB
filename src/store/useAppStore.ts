@@ -19,6 +19,7 @@ import {
 import * as database from '../services/db/database';
 import { processIncomingSms, IngestionResult } from '../services/sms/ingestion/smsIngestionService';
 import { readDeviceSmsInbox } from '../services/sms/native/smsReader';
+import { liveSmsEngine } from '../services/sms/live/liveSmsEngine';
 import { reconcileBalance } from '../services/sms/reconciliation/balanceReconciler';
 import {
   createGoalWithDedicatedBucket,
@@ -445,29 +446,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   syncLatestDeviceSms: async (maxCount: number = 50) => {
-    const currentTxs = get().transactions;
-    const latestTx = currentTxs.length > 0 ? currentTxs[0] : null;
-    const sinceTimestamp = latestTx ? new Date(latestTx.createdAt).getTime() : 0;
-
-    const scanResult = await readDeviceSmsInbox({ maxCount, sinceTimestamp });
-    const newMessages = scanResult.messages;
-
-    let processedCount = 0;
-    // Process chronologically from oldest to newest
-    const sorted = [...newMessages].sort((a, b) => a.timestamp - b.timestamp);
-    for (const msg of sorted) {
-      const res = processIncomingSms(msg.body, msg.sender, msg.timestamp);
-      if (res.status === 'PROCESSED') {
-        processedCount++;
-      }
-    }
-
-    if (processedCount > 0) {
-      const updated = getUpdatedStoreState();
-      set({ ...updated });
-    }
-
-    return { processedCount, totalScanned: newMessages.length };
+    const result = await liveSmsEngine.pollNow();
+    return { processedCount: result.processedCount, totalScanned: result.scannedCount };
   },
 
   reconcileTrackedBalance: async () => {

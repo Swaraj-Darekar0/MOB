@@ -21,6 +21,7 @@ import { Button } from '../../components/common/Button';
 import { Envelope } from '../../types';
 import { X, Plus, FolderPlus, LayoutGrid, Layers, Trash2, Inbox } from 'lucide-react-native';
 import { ReviewQueuePopup } from '../../components/dashboard/ReviewQueuePopup';
+import { liveSmsEngine } from '../../services/sms/live/liveSmsEngine';
 
 export default function BucketsDashboardScreen() {
   const router = useRouter();
@@ -96,6 +97,7 @@ export default function BucketsDashboardScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
+    await liveSmsEngine.pollNow();
     await loadInitialData();
     setRefreshing(false);
   };

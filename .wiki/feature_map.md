@@ -632,11 +632,28 @@ The architecture comprises two primary unidirectional pipelines operating over a
 ### Feature 7.9: SMS Ingestion Orchestrator
 - **Functional Role**: Coordinates the multi-stage SMS pipeline from deduplication to SQLite atomic transaction booking.
 - **Exact Source Code Locations**:
-  - `src/services/sms/ingestion/smsIngestionService.ts` (Lines 1–245)
+  - `src/services/sms/ingestion/smsIngestionService.ts` (Lines 1–355)
 - **Schema & State Interactions**:
-  - Executes: Deduplication -> Sender Trust -> Financial Filter -> Grammar Parser -> Correlator -> 7-Tier Lexical Classifier -> SQLite atomic transaction via `db.withTransactionSync`.
+  - Executes: Deduplication against `transaction_messages` & `ignored_message_hashes` -> Sender Trust -> Financial Filter -> Grammar Parser -> Correlator -> 7-Tier Lexical Classifier -> SQLite atomic transaction via `db.withTransactionSync`.
 - **Failure Modes & Edge Cases**:
   - *Transaction Rollback*: If any SQL constraint fails, SQLite rolls back changes atomically.
+
+### Feature 7.10: Live 5-Second SMS Polling Engine & App Lifecycle Synchronizer
+- **Functional Role**: Periodically polls the native Android SMS inbox every 5 seconds while the app is in the foreground, immediately processing financial debits, credits, and review queue additions live.
+- **Exact Source Code Locations**:
+  - `src/services/sms/live/liveSmsEngine.ts` (Lines 1–150)
+  - `src/hooks/useLiveSmsEngine.ts` (Lines 1–30)
+  - `src/app/_layout.tsx` (Lines 40–60)
+  - `src/app/(tabs)/index.tsx` (Lines 95–105)
+- **Schema & State Interactions**:
+  - Polling interval: runs every 5000ms via `setInterval` while `AppState.currentState === 'active'`.
+  - Mutex concurrency guard: prevents redundant overlapping scans during long query executions.
+  - External Debit SMS: auto-allocated to matching envelope, or pushed to Review Queue with red dot badge if unassigned.
+  - Live Credit SMS (`INCOME` / `REFUND`): immediately increments tracked balance snapshot and updates `unallocatedBalance`.
+  - Closed App Lifecycle: ceases polling when app is backgrounded or closed (zero battery drain). On cold start or resume to `active`, immediately triggers catch-up scan (`pollNow()`).
+- **Failure Modes & Edge Cases**:
+  - *Closed App*: Engine does not poll in background; automatically catches up on all missed SMS upon app launch.
+  - *No Permission*: Skips silently without triggering intrusive OS permission popups during polling loop.
 
 ---
 
@@ -1244,6 +1261,8 @@ Every single relative file path listed in the matrix below exists on disk under 
 | 61 | `src/services/sms/reconciliation/paymentCorrelator.ts` | Module 7: SMS Pipeline | 3-signal payment correlator (`CONFIRMED` on score >= 70) |
 | 62 | `src/services/sms/reconciliation/balanceReconciler.ts` | Module 7: SMS Pipeline | Real-time balance reconciler with sub-10 paise tolerance checking |
 | 63 | `src/services/sms/ingestion/smsIngestionService.ts` | Module 7: SMS Pipeline | Core orchestrator `processIncomingSms()` coordinating entire pipeline |
+| 63a | `src/services/sms/live/liveSmsEngine.ts` | Module 7: SMS Pipeline | 5-second polling interval engine, AppState lifecycle listener, and mutex lock |
+| 63b | `src/hooks/useLiveSmsEngine.ts` | Module 7: SMS Pipeline | React hook observing live SMS status and manual triggers |
 | 64 | `src/services/db/database.ts` | Module 8: SQLite Ledger | SQLite database instance, 14 tables, 10 indexes, WAL mode, conservation invariant |
 | 65 | `src/utils/money.ts` | Module 8: Money Math | Integer-paise arithmetic: `toPaise`, `toRupees`, `addPaise`, `subPaise`, `formatPaise` |
 | 66 | `src/types/index.ts` | Module 8: Types | Domain models: `ParsedUPIQR`, `PaymentAttempt`, `Transaction`, `Envelope`, `Goal` |

@@ -9,6 +9,8 @@ import {
   insertTransaction,
   insertTransactionMessage,
   hasTransactionMessageHash,
+  hasIgnoredMessageHash,
+  insertIgnoredMessageHash,
   findMerchantRule,
   getPrimaryAccount,
   updateAccountBalances,
@@ -49,15 +51,16 @@ export function processIncomingSms(
   timestamp: number = Date.now()
 ): IngestionResult {
   try {
-    // 1. Deduplication Check
+    // 1. Deduplication Check (Financial or already rejected non-financial)
     const messageHash = computeMessageHash(sender, body, timestamp);
-    if (hasTransactionMessageHash(messageHash)) {
+    if (hasTransactionMessageHash(messageHash) || hasIgnoredMessageHash(messageHash)) {
       return { status: 'DUPLICATE', reason: 'MESSAGE_ALREADY_INGESTED' };
     }
 
     // 2. Parse SMS
     const parsedTx: ParsedTransaction | null = parseSms(body, sender, timestamp);
     if (!parsedTx) {
+      insertIgnoredMessageHash(messageHash, sender);
       return { status: 'NON_FINANCIAL', reason: 'REJECTED_OR_NON_BOOKABLE' };
     }
 

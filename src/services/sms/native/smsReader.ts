@@ -54,16 +54,19 @@ export async function checkSmsPermission(): Promise<boolean> {
   }
 }
 
-/**
- * Reads SMS messages from the device inbox using native Android ContentResolver.
- * Automatically falls back to SYNTHETIC_TEST_FIXTURES in Expo Go, non-Android,
- * or when permission is not granted.
- */
-export async function readDeviceSmsInbox(options?: {
+export interface ReadSmsOptions {
   maxCount?: number;
   sinceTimestamp?: number;
   forceSynthetic?: boolean;
-}): Promise<ReadSmsResult> {
+  requestPermissionIfMissing?: boolean;
+}
+
+/**
+ * Reads SMS messages from the device inbox using native Android ContentResolver.
+ * Automatically falls back to SYNTHETIC_TEST_FIXTURES in Expo Go, non-Android,
+ * or when forceSynthetic is enabled.
+ */
+export async function readDeviceSmsInbox(options?: ReadSmsOptions): Promise<ReadSmsResult> {
   const isExpoGo = Constants.appOwnership === 'expo';
   const isAndroid = Platform.OS === 'android';
 
@@ -77,11 +80,18 @@ export async function readDeviceSmsInbox(options?: {
 
   const hasPermission = await checkSmsPermission();
   if (!hasPermission) {
+    if (options?.requestPermissionIfMissing === false) {
+      return {
+        messages: [],
+        isSynthetic: false,
+        permissionGranted: false,
+      };
+    }
     const requested = await requestSmsPermission();
     if (!requested) {
       return {
-        messages: [...SYNTHETIC_TEST_FIXTURES],
-        isSynthetic: true,
+        messages: [],
+        isSynthetic: false,
         permissionGranted: false,
       };
     }
@@ -94,26 +104,24 @@ export async function readDeviceSmsInbox(options?: {
         options?.sinceTimestamp ?? 0
       );
 
-      if (nativeRecords && nativeRecords.length > 0) {
-        return {
-          messages: nativeRecords.map((r) => ({
-            id: r.id,
-            sender: r.sender,
-            body: r.body,
-            timestamp: r.timestamp,
-          })),
-          isSynthetic: false,
-          permissionGranted: true,
-        };
-      }
+      return {
+        messages: (nativeRecords || []).map((r) => ({
+          id: r.id,
+          sender: r.sender,
+          body: r.body,
+          timestamp: r.timestamp,
+        })),
+        isSynthetic: false,
+        permissionGranted: true,
+      };
     } catch (err) {
-      console.warn('[SMS Reader] Native inbox query error, falling back to fixtures:', err);
+      console.warn('[SMS Reader] Native inbox query error:', err);
     }
   }
 
   return {
-    messages: [...SYNTHETIC_TEST_FIXTURES],
-    isSynthetic: true,
+    messages: [],
+    isSynthetic: false,
     permissionGranted: true,
   };
 }

@@ -9,6 +9,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { colors } from '../theme';
 import { useAppStore } from '../store/useAppStore';
 import { DecryptedSplashOverlay } from '../components/common/DecryptedSplashOverlay';
+import { liveSmsEngine } from '../services/sms/live/liveSmsEngine';
 
 // Reanimated 4 configuration: suppress strict-mode render warnings
 configureReanimatedLogger({
@@ -38,16 +39,24 @@ export default function RootLayout() {
     init();
   }, []);
 
-  // App-Resume Reconciliation & Goal Allocation Invariant Hook
+  // App-Resume Reconciliation & Live SMS Ingestion Hook
   useEffect(() => {
+    if (isInitialized) {
+      liveSmsEngine.start();
+    } else {
+      liveSmsEngine.stop();
+    }
+
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       if (nextAppState === 'active' && isInitialized) {
         useAppStore.getState().reconcileTrackedBalance().catch(() => {});
         useAppStore.getState().runScheduledGoalAllocations().catch(() => {});
+        liveSmsEngine.pollNow().catch(() => {});
       }
     });
 
     return () => {
+      liveSmsEngine.stop();
       subscription.remove();
     };
   }, [isInitialized]);

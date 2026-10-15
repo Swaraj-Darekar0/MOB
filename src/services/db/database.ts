@@ -161,6 +161,12 @@ export function initDatabase(): void {
       parser_version TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS ignored_message_hashes (
+      message_hash TEXT PRIMARY KEY,
+      sender TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS payment_attempts (
       id TEXT PRIMARY KEY,
       envelope_id TEXT NOT NULL,
@@ -1661,6 +1667,31 @@ export function hasTransactionMessageHash(messageHash: string): boolean {
     [messageHash]
   );
   return !!(row && row.count > 0);
+}
+
+export function hasIgnoredMessageHash(messageHash: string): boolean {
+  if (!messageHash || !db) return false;
+  try {
+    const row = db.getFirstSync<{ count: number }>(
+      'SELECT COUNT(*) as count FROM ignored_message_hashes WHERE message_hash = ?',
+      [messageHash]
+    );
+    return !!(row && row.count > 0);
+  } catch {
+    return false;
+  }
+}
+
+export function insertIgnoredMessageHash(messageHash: string, sender: string): void {
+  if (!messageHash || !db) return;
+  try {
+    db.runSync(
+      'INSERT OR IGNORE INTO ignored_message_hashes (message_hash, sender, created_at) VALUES (?, ?, ?)',
+      [messageHash, sender, new Date().toISOString()]
+    );
+  } catch {
+    // Ignore duplicate or locked errors
+  }
 }
 
 // -------------------------------------------------------------
