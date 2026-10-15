@@ -311,41 +311,59 @@ The architecture comprises two primary unidirectional pipelines operating over a
 
 ## 6. Module 5: Goals & Cadence Scheduler
 
-### Feature 5.1: Dedicated Goals Management View
-- **Functional Role**: Coordinates savings goals, cadence progression, shortfall strain warnings, and goal creation/editing modals.
+### Feature 5.1: Dedicated Goals Management View & Adaptive Copilot Deck
+- **Functional Role**: Coordinates savings goals, cadence progression, shortfall strain alerts, and the adaptive goal copilot reality deck.
 - **Exact Source Code Locations**:
-  - `src/app/(tabs)/goals.tsx` (Lines 1–280)
+  - `src/app/(tabs)/goals.tsx` (Lines 1–860)
 - **Schema & State Interactions**:
-  - Displays list of active goals: Target Amount, Saved Amount, Deadline, Cadence tag (`DAILY`, `WEEKLY`, `MONTHLY`).
-  - Shortfall Strain Banner: Renders when unallocated cash is insufficient to satisfy upcoming scheduled deductions.
+  - Displays active goals with target amount, saved amount, deadline date, and cadence tags.
+  - Shortfall Strain Banner alerts the user when unallocated cash cannot cover upcoming installments.
   - Two-Step Goal Creation Modal:
-    - Step 1: Goal name, target amount, emoji picker, calendar deadline date picker.
-    - Step 2: `ThoughtLine` cadence optimizer calculating required recurring installments.
-  - Goal Actions: Move funds into/out of goal, pause deductions, resume, delete goal (reallocating funds to unallocated cash).
+    - Step 1: Captures goal name, target amount, emoji icon, and deadline date using an interactive calendar.
+    - Step 2: Runs a deliberate `ThoughtLine` analysis sequence, then displays cash-flow telemetry and reality options.
+  - Reality Offer Deck:
+    - Option 1 (The Stress-Free Pace): Dilates deadline date to protect the user's current lifestyle.
+    - Option 2 (The Envelope Trim Plan): Keeps original target date by trimming flexible envelopes like Dining and Shopping.
+    - Option 3 (The Seed & Sprint Plan): Siphons idle unallocated cash upfront to lower monthly payments.
+  - Manual Cadence Switcher: Allows the user to view and pick standard Daily, Weekly, or Monthly plans.
+  - Feasibility Alert Banner: Displays Solvent, Balanced, or Deficit status based on 90-day cash flow.
+  - Unlocked Pro Feature Hook: Simulates unlocked Pro copilot tier for development and testing.
 - **Failure Modes & Edge Cases**:
-  - *Past Date Selection*: Calendar picker disables past dates to prevent invalid schedule calculations.
+  - *Past Date Selection*: Calendar picker blocks past dates to prevent negative schedule math.
+  - *Zero Discretionary Surplus*: Disables Option 2 trim suggestions if no flexible envelopes have positive limits.
 
-### Feature 5.2: Deterministic Goal Planning Engine
-- **Functional Role**: Manages virtual goal envelopes, automated scheduled deduction execution, partial allocations, and shortfall tracking.
+### Feature 5.2: Deterministic Goal Planning & Tradeoff Execution Engine
+- **Functional Role**: Manages dedicated goal envelopes, automated scheduled deduction execution, partial allocations, and envelope trim execution.
 - **Exact Source Code Locations**:
-  - `src/services/goals/goalPlanner.ts` (Lines 1–340)
+  - `src/services/goals/goalPlanner.ts` (Lines 1–380)
 - **Schema & State Interactions**:
-  - **Dedicated Virtual Envelope Invariant**: Every goal in `goals` table is linked 1:1 with an envelope in `envelopes` where `archetype = 'GOAL'`.
-  - **Partial Allocation Default**: On scheduled execution (`processScheduledGoalAllocations`), if unallocated cash < required installment, it allocates available cash rather than failing.
-  - **Shortfall Logging**: Any unfulfilled installment amount is recorded in `goal_shortfalls` (`resolved = 0`).
-  - **Shortfall Recovery (`moveMoneyToGoal`)**: Transfers funds from another envelope to resolve active shortfall, recalculating future installment schedules.
+  - **Dedicated Virtual Envelope Invariant**: Links every goal record directly to an envelope with archetype `GOAL`.
+  - **Reality Option Execution (`createGoalWithDedicatedBucket`)**:
+    - For Option 2 (`SACRIFICE`): Compresses target limits on selected envelopes and moves available balance to unallocated cash.
+    - Records `ALLOCATE_TO_ENVELOPE` ledger events to preserve complete audit history.
+    - For Option 3 (`SEED_SPRINT`): Injects upfront seed cash from unallocated funds into the new goal envelope immediately.
+  - **Partial Allocation Default**: On scheduled execution (`processScheduledGoalAllocations`), transfers available unallocated cash if balance is insufficient.
+  - **Shortfall Logging**: Writes unfulfilled installment amounts to `goal_shortfalls` with `resolved = 0`.
+  - **Shortfall Recovery (`moveMoneyToGoal`)**: Transfers money from surplus envelopes to clear shortfalls and recalculates installment schedules.
 - **Failure Modes & Edge Cases**:
-  - *Zero Unallocated Cash*: Allocates 0 paise, marks full shortfall in `goal_shortfalls`, and updates next contribution date without crashing.
+  - *Zero Unallocated Cash*: Allocates 0 paise, logs full shortfall, and advances next contribution date safely.
 
-### Feature 5.3: Calendar Cadence Advancement & Installment Math
-- **Functional Role**: Executes integer-paise installment division and calendar date cadence math.
+### Feature 5.3: Robust Nonparametric Statistics & 3-Way Reality Math
+- **Functional Role**: Analyzes 90-day cash flow using robust statistics, evaluates goal feasibility, and computes reality offers.
 - **Exact Source Code Locations**:
-  - `src/services/goals/goalCalculations.ts` (Lines 1–58)
+  - `src/services/goals/goalCalculations.ts` (Lines 1–460)
 - **Schema & State Interactions**:
-  - `calculateInstallmentAmount`: Uses `Math.ceil(remainingPaise / intervals)`.
-  - `advanceNextDueDate`: Increments ISO dates by cadence (Daily: +1 day, Weekly: +7 days, Monthly: +1 month).
+  - **Robust Statistics**: Uses median and Median Absolute Deviation (MAD) with Hampel anomaly filter (scale factor 1.4826).
+  - Filters windfall spikes (e.g., festival bonus) to prevent unrealistic goal commitments.
+  - Decomposes cash flow into Essential Fixed Burn (Rent, EMI, Utilities) and Volatile Discretionary Outflow (Dining, Shopping).
+  - Computes Disposable Free Cash Flow at median ($\text{DFCF}_{50}$) and conservative floor ($\text{DFCF}_{25}$).
+  - **Cadence Decision Boundary**: Restricts Daily cadence to micro-goals ($\le \text{₹}3,000$). Demonstrates Monthly cadence dominance for salary earners.
+  - **Feasibility Index $\Phi(T, \Delta t) \in [0, 1]$**: Classifies goals into Solvent Comfortable, Balanced Stretch, or Deficit Critical.
+  - **Adaptive Deadline Dilation**: Solves minimal solvent timeline: $\Delta t^* = \lceil T / \text{DFCF}_{50} \rceil \times 30$ days.
+  - Delivers plain ASD-STE-100 explanations with concise active sentences.
 - **Failure Modes & Edge Cases**:
-  - *Month Boundary Overflow*: Advances January 31 to February 28/29 correctly using standard calendar handling.
+  - *No Transaction History*: Falls back safely to conservative default estimates without throwing errors.
+  - *Zero Discretionary Spend*: Protects against division by zero in variance and ratio formulas.
 
 ---
 
@@ -1228,9 +1246,9 @@ Every single relative file path listed in the matrix below exists on disk under 
 | 28 | `src/components/ui/MorphingDeck.tsx` | Module 4: Cards | Gesture-driven morphing transition between 2-column grid and stacked card deck |
 | 29 | `src/components/ui/BucketStack.tsx` | Module 4: Cards | Reanimated physics spring card deck with peek offsets |
 | 30 | `src/components/ui/RubberSegmentBar.tsx` | Module 4: Cards | Segmented controller with elastic liquid capsule indicator |
-| 31 | `src/app/(tabs)/goals.tsx` | Module 5: Goals | Savings goals view, cadence progression, shortfall strain alerts, calendar picker |
-| 32 | `src/services/goals/goalPlanner.ts` | Module 5: Goals | Deterministic goal planner, dedicated `GOAL` envelopes, partial allocation default |
-| 33 | `src/services/goals/goalCalculations.ts` | Module 5: Goals | Integer-paise installment division and calendar cadence advancement |
+| 31 | `src/app/(tabs)/goals.tsx` | Module 5: Goals | Savings goals view, 3-way reality offer deck, cadence options, shortfall alerts |
+| 32 | `src/services/goals/goalPlanner.ts` | Module 5: Goals | Deterministic goal planner, envelope cuts execution, seed injections, shortfall recovery |
+| 33 | `src/services/goals/goalCalculations.ts` | Module 5: Goals | Robust statistics, Hampel filter, DFCF cash flow, feasibility score, reality math |
 | 34 | `src/app/payment/scan.tsx` | Module 6: Payments | Fullscreen camera QR scanner, reticle overlay, manual UPI auto-complete |
 | 35 | `src/components/ui/QRScannerReticle.tsx` | Module 6: Payments | 60fps compositor-only camera HUD reticle and sweeping laser beam |
 | 36 | `src/services/payment/upiHandles.ts` | Module 6: Payments | 50+ PSP handle dictionary, `getMatchingUPIHandles()`, 5-tier P2M/P2P classifier |

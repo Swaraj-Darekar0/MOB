@@ -26,6 +26,12 @@ import {
   analyzeCashFlowHabits,
   CashFlowHabitAnalysis,
   CadenceInsight,
+  FeasibilityBand,
+  RealityOffer,
+  RealityOptionStressFree,
+  RealityOptionSacrifice,
+  RealityOptionSeedSprint,
+  EnvelopeCutItem,
 } from './goalCalculations';
 
 export {
@@ -34,19 +40,33 @@ export {
   analyzeCashFlowHabits,
   CashFlowHabitAnalysis,
   CadenceInsight,
+  FeasibilityBand,
+  RealityOffer,
+  RealityOptionStressFree,
+  RealityOptionSacrifice,
+  RealityOptionSeedSprint,
+  EnvelopeCutItem,
 };
 
-/**
- * Creates a Goal along with its dedicated Goal Bucket envelope.
- * Invariant: Every goal has exactly one dedicated virtual envelope (archetype = 'GOAL').
- */
-export function createGoalWithDedicatedBucket(params: {
+export interface CreateGoalWithDedicatedBucketParams {
   name: string;
   targetAmountPaise: MoneyPaise;
   deadline: string; // YYYY-MM-DD
   cadence: GoalCadence;
   initialDepositPaise?: MoneyPaise;
-}): Goal {
+  chosenRealityOption?: 'STRESS_FREE' | 'SACRIFICE' | 'SEED_SPRINT';
+  envelopeCuts?: Array<{
+    category?: string;
+    envelopeName?: string;
+    cutMonthlyPaise: MoneyPaise;
+  }>;
+}
+
+/**
+ * Creates a Goal along with its dedicated Goal Bucket envelope.
+ * Invariant: Every goal has exactly one dedicated virtual envelope (archetype = 'GOAL').
+ */
+export function createGoalWithDedicatedBucket(params: CreateGoalWithDedicatedBucketParams): Goal {
   const goalId = generateId('goal');
   const todayIso = new Date().toISOString().split('T')[0];
 
@@ -106,7 +126,62 @@ export function createGoalWithDedicatedBucket(params: {
       }
     }
 
-    // 3. Create Goal Record
+    // 3. If Envelope Sacrifice option was chosen, trim matching discretionary envelopes
+    if (params.chosenRealityOption === 'SACRIFICE' && params.envelopeCuts && params.envelopeCuts.length > 0) {
+      const allEnvelopes = getEnvelopes();
+      const unallocated = allEnvelopes.find((e) => e.isUnallocated || e.name.toLowerCase() === 'unallocated');
+
+      for (const cut of params.envelopeCuts) {
+        const cutRupees = toRupees(cut.cutMonthlyPaise);
+        if (cutRupees <= 0) continue;
+
+        // Match envelope by category or name
+        const targetEnv = allEnvelopes.find((e) => {
+          if (cut.envelopeName && e.name.toLowerCase().includes(cut.envelopeName.toLowerCase())) return true;
+          if (cut.category && (e.name.toLowerCase().includes(cut.category.toLowerCase()) || e.icon?.toLowerCase().includes(cut.category.toLowerCase()))) return true;
+          return false;
+        });
+
+        if (targetEnv) {
+          // If envelope has targetAmount, compress target budget
+          if (targetEnv.targetAmount && targetEnv.targetAmount > 0) {
+            const newTarget = Math.max(0, targetEnv.targetAmount - cutRupees);
+            db.runSync(
+              'UPDATE envelopes SET targetAmount = ? WHERE id = ?',
+              [newTarget, targetEnv.id]
+            );
+          }
+
+          // Move current allocated funds from envelope to unallocated if available
+          const transferable = Math.min(targetEnv.currentAmount, cutRupees);
+          if (transferable > 0 && unallocated) {
+            db.runSync(
+              'UPDATE envelopes SET currentAmount = currentAmount - ? WHERE id = ?',
+              [transferable, targetEnv.id]
+            );
+            db.runSync(
+              'UPDATE envelopes SET currentAmount = currentAmount + ? WHERE id = ?',
+              [transferable, unallocated.id]
+            );
+            db.runSync(
+              `INSERT INTO ledger_events (id, type, amount, sourceEnvelopeId, destinationEnvelopeId, note, createdAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              [
+                generateId('event'),
+                'ALLOCATE_TO_ENVELOPE',
+                transferable,
+                targetEnv.id,
+                unallocated.id,
+                `Trimmed from ${targetEnv.name} for goal: ${params.name}`,
+                new Date().toISOString(),
+              ]
+            );
+          }
+        }
+      }
+    }
+
+    // 4. Create Goal Record
     const goal: Goal = {
       id: goalId,
       name: params.name,

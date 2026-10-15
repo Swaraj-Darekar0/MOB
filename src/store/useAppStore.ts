@@ -23,6 +23,7 @@ import { liveSmsEngine } from '../services/sms/live/liveSmsEngine';
 import { reconcileBalance } from '../services/sms/reconciliation/balanceReconciler';
 import {
   createGoalWithDedicatedBucket,
+  CreateGoalWithDedicatedBucketParams,
   processScheduledGoalAllocations,
   moveMoneyToGoal,
 } from '../services/goals/goalPlanner';
@@ -102,13 +103,7 @@ export interface AppState {
     categoryId?: SystemCategory,
     teachRule?: boolean
   ) => Promise<void>;
-  createGoal: (params: {
-    name: string;
-    targetAmountPaise: MoneyPaise;
-    deadline: string;
-    cadence: GoalCadence;
-    initialDepositPaise?: MoneyPaise;
-  }) => Promise<Goal>;
+  createGoal: (params: CreateGoalWithDedicatedBucketParams) => Promise<Goal>;
   updateGoal: (id: string, updates: Partial<Goal>) => Promise<void>;
   deleteGoal: (id: string) => Promise<void>;
   runScheduledGoalAllocations: () => Promise<{ allocations: GoalAllocationResult[]; shortfalls: GoalShortfall[] }>;

@@ -57,7 +57,20 @@ import {
   AlertCircle,
   Compass,
   Flame,
+  ShieldAlert,
+  Scissors,
+  Zap,
 } from 'lucide-react-native';
+
+/**
+ * Commercialization & Monetization Feature Flag
+ * In active development: PRO features remain 100% unlocked for testing.
+ * When enabled in production, opens paywall window for Reality Copilot.
+ */
+export const COPILOT_MONETIZATION = {
+  isProUnlocked: true, // 100% unlocked for development & testing
+  tier: 'PRO',
+};
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -67,9 +80,10 @@ const MONTH_NAMES = [
 const WEEKDAY_NAMES = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
 const GOAL_OPTIMIZATION_STATEMENTS = [
-  'Scanning 90-day bank logs',
-  'Evaluating spending & income ratio',
-  'Projecting sustainable cadences',
+  'Checking 90 days of SMS transactions',
+  'Separating fixed bills from flexible spending',
+  'Testing your safe cash flow and safety buffer',
+  'Finding your most reliable savings path',
 ];
 
 interface GoalVisuals {
@@ -336,6 +350,8 @@ export default function GoalsScreen() {
   const [targetAmountRupees, setTargetAmountRupees] = useState('');
   const [cadence, setCadence] = useState<GoalCadence>('MONTHLY');
   const [initialFundingRupees, setInitialFundingRupees] = useState('');
+  const [selectedRealityOption, setSelectedRealityOption] = useState<'STRESS_FREE' | 'SACRIFICE' | 'SEED_SPRINT' | 'NONE'>('STRESS_FREE');
+  const [showManualCadences, setShowManualCadences] = useState(false);
 
   // Target Date & Calendar State
   const [targetDate, setTargetDate] = useState<Date>(() => {
@@ -416,12 +432,21 @@ export default function GoalsScreen() {
 
     const startTime = Date.now();
     try {
-      // 1. Analyze 90-day debits & credits across bank accounts
+      // 1. Analyze 90-day debits & credits across bank accounts with robust statistics
       const targetPaiseVal = toPaise(numTarget);
-      const analysis = analyzeCashFlowHabits(targetPaiseVal, deadlineStr, transactions);
+      const unallocatedPaiseVal = toPaise(unallocatedBalance);
+      const analysis = analyzeCashFlowHabits(targetPaiseVal, deadlineStr, transactions, undefined, unallocatedPaiseVal);
       setCashFlowAnalysis(analysis);
-      if (analysis.recommendedCadence) {
-        setCadence(analysis.recommendedCadence);
+
+      if (analysis.realityOffer?.isNeeded) {
+        setSelectedRealityOption('STRESS_FREE');
+        setShowManualCadences(false);
+      } else {
+        setSelectedRealityOption('NONE');
+        setShowManualCadences(true);
+        if (analysis.recommendedCadence) {
+          setCadence(analysis.recommendedCadence);
+        }
       }
 
       // 2. Guarantee minimum 2.5s duration so user can read statements clearly
@@ -526,18 +551,61 @@ export default function GoalsScreen() {
 
     try {
       setCreateStep2Error(null);
-      await createGoal({
-        name: goalName.trim(),
-        targetAmountPaise: toPaise(numTarget),
-        deadline: deadlineStr,
-        cadence,
-        initialDepositPaise: initDeposit > 0 ? toPaise(initDeposit) : undefined,
-      });
+
+      // Check if a Reality Option is selected
+      if (cashFlowAnalysis?.realityOffer?.isNeeded && selectedRealityOption !== 'NONE') {
+        if (selectedRealityOption === 'STRESS_FREE') {
+          const opt = cashFlowAnalysis.realityOffer.optionStressFree;
+          await createGoal({
+            name: goalName.trim(),
+            targetAmountPaise: toPaise(numTarget),
+            deadline: opt.dilatedTargetDate,
+            cadence: 'MONTHLY',
+            initialDepositPaise: initDeposit > 0 ? toPaise(initDeposit) : undefined,
+            chosenRealityOption: 'STRESS_FREE',
+          });
+        } else if (selectedRealityOption === 'SACRIFICE') {
+          const opt = cashFlowAnalysis.realityOffer.optionSacrifice;
+          await createGoal({
+            name: goalName.trim(),
+            targetAmountPaise: toPaise(numTarget),
+            deadline: deadlineStr,
+            cadence: 'MONTHLY',
+            initialDepositPaise: initDeposit > 0 ? toPaise(initDeposit) : undefined,
+            chosenRealityOption: 'SACRIFICE',
+            envelopeCuts: opt.cuts.map((c) => ({
+              category: c.category,
+              envelopeName: c.envelopeName,
+              cutMonthlyPaise: c.cutMonthlyPaise,
+            })),
+          });
+        } else if (selectedRealityOption === 'SEED_SPRINT' && cashFlowAnalysis.realityOffer.optionSeedSprint) {
+          const opt = cashFlowAnalysis.realityOffer.optionSeedSprint;
+          await createGoal({
+            name: goalName.trim(),
+            targetAmountPaise: toPaise(numTarget),
+            deadline: deadlineStr,
+            cadence: 'MONTHLY',
+            initialDepositPaise: opt.seedAmountPaise,
+            chosenRealityOption: 'SEED_SPRINT',
+          });
+        }
+      } else {
+        await createGoal({
+          name: goalName.trim(),
+          targetAmountPaise: toPaise(numTarget),
+          deadline: deadlineStr,
+          cadence,
+          initialDepositPaise: initDeposit > 0 ? toPaise(initDeposit) : undefined,
+        });
+      }
 
       // Reset & close
       setGoalName('');
       setTargetAmountRupees('');
       setInitialFundingRupees('');
+      setSelectedRealityOption('STRESS_FREE');
+      setShowManualCadences(false);
       setHasOptimized(false);
       setIsOptimizing(false);
       setCreateModalVisible(false);
@@ -654,6 +722,8 @@ export default function GoalsScreen() {
     setGoalName('');
     setTargetAmountRupees('');
     setInitialFundingRupees('');
+    setSelectedRealityOption('STRESS_FREE');
+    setShowManualCadences(false);
     setCreateModalVisible(true);
   };
 
@@ -1138,126 +1208,333 @@ export default function GoalsScreen() {
                               </View>
                             </View>
 
-                            {/* Contribution Frequency Options: 100% viewport width, equal dignity, zero clipping */}
-                            <Text style={styles.cadenceSectionTitle}>CHOOSE CONTRIBUTION FREQUENCY</Text>
+                            {/* If Reality Offer is needed (Stretch or Deficit), show 3-Way Pathways */}
+                            {cashFlowAnalysis?.realityOffer?.isNeeded && (
+                              <View style={{ marginBottom: spacing.md }}>
+                                {/* Feasibility Alert Banner */}
+                                <View
+                                  style={[
+                                    styles.realityHeaderBanner,
+                                    cashFlowAnalysis.feasibilityBand === 'DEFICIT_CRITICAL'
+                                      ? { backgroundColor: 'rgba(239, 68, 68, 0.12)', borderColor: 'rgba(239, 68, 68, 0.35)' }
+                                      : { backgroundColor: 'rgba(245, 158, 11, 0.12)', borderColor: 'rgba(245, 158, 11, 0.35)' },
+                                  ]}
+                                >
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                    <ShieldAlert
+                                      size={14}
+                                      color={cashFlowAnalysis.feasibilityBand === 'DEFICIT_CRITICAL' ? '#EF4444' : '#F59E0B'}
+                                    />
+                                    <Text
+                                      style={[
+                                        styles.realityHeaderTitle,
+                                        { color: cashFlowAnalysis.feasibilityBand === 'DEFICIT_CRITICAL' ? '#EF4444' : '#F59E0B' },
+                                      ]}
+                                    >
+                                      {cashFlowAnalysis.feasibilityBand === 'DEFICIT_CRITICAL'
+                                        ? 'TARGET NEEDS ATTENTION'
+                                        : 'TARGET IS ACHIEVABLE WITH CARE'}
+                                    </Text>
+                                  </View>
+                                  <Text style={styles.realityHeaderDesc}>
+                                    {cashFlowAnalysis.feasibilityBand === 'DEFICIT_CRITICAL'
+                                      ? `At your current spending, this goal needs ₹${toRupees(cashFlowAnalysis.realityOffer.monthlyDeficitPaise).toLocaleString('en-IN')}/mo more than your safe cash flow. Choose one of three realistic paths below:`
+                                      : `This goal is near your safe monthly surplus. Choose a path below to stay comfortable:`}
+                                  </Text>
+                                </View>
 
-                            <View style={styles.cadenceStackContainer}>
-                              {[
-                                {
-                                  key: 'DAILY' as GoalCadence,
-                                  label: 'Daily',
-                                  amountPaise: dailyInstallmentPaise,
-                                  periodLabel: '/ day',
-                                  scheduleText: `${daysRemaining} daily installments`,
-                                  insight: cashFlowAnalysis?.cadences?.DAILY,
-                                },
-                                {
-                                  key: 'WEEKLY' as GoalCadence,
-                                  label: 'Weekly',
-                                  amountPaise: weeklyInstallmentPaise,
-                                  periodLabel: '/ week',
-                                  scheduleText: `${Math.ceil(daysRemaining / 7)} weekly installments`,
-                                  insight: cashFlowAnalysis?.cadences?.WEEKLY,
-                                },
-                                {
-                                  key: 'MONTHLY' as GoalCadence,
-                                  label: 'Monthly',
-                                  amountPaise: monthlyInstallmentPaise,
-                                  periodLabel: '/ month',
-                                  scheduleText: `${Math.max(1, Math.ceil(daysRemaining / 30))} monthly installments`,
-                                  insight: cashFlowAnalysis?.cadences?.MONTHLY,
-                                },
-                              ].map((item) => {
-                                const isSelected = cadence === item.key;
-
-                                return (
-                                  <TouchableOpacity
-                                    key={item.key}
-                                    style={[
-                                      styles.cadenceRowCard,
-                                      isSelected && styles.cadenceRowCardSelected,
-                                    ]}
-                                    onPress={() => setCadence(item.key)}
-                                    activeOpacity={0.8}
-                                  >
-                                    <View style={styles.cadenceRowLeft}>
-                                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                        <Text
-                                          style={[
-                                            styles.cadenceRowTitle,
-                                            isSelected && styles.cadenceRowTitleSelected,
-                                          ]}
-                                        >
-                                          {item.label}
-                                        </Text>
-                                        {item.insight && (
-                                          <View
-                                            style={[
-                                              styles.sustainabilityBadge,
-                                              { backgroundColor: `${item.insight.badgeColor}22` },
-                                            ]}
-                                          >
-                                            <Text
-                                              style={[
-                                                styles.sustainabilityBadgeText,
-                                                { color: item.insight.badgeColor },
-                                              ]}
-                                            >
-                                              {item.insight.badgeLabel}
-                                            </Text>
-                                          </View>
-                                        )}
-                                      </View>
-                                      <Text style={styles.cadenceRowSchedule}>
-                                        {item.scheduleText}
-                                      </Text>
-                                      {item.insight?.pacingSummary && (
-                                        <Text style={styles.cadencePacingSummaryText}>
-                                          {item.insight.pacingSummary}
-                                        </Text>
+                                {/* Option 1: The Stress-Free Pace */}
+                                <TouchableOpacity
+                                  style={[
+                                    styles.realityCard,
+                                    selectedRealityOption === 'STRESS_FREE' && styles.realityCardSelected,
+                                  ]}
+                                  onPress={() => {
+                                    setSelectedRealityOption('STRESS_FREE');
+                                    setShowManualCadences(false);
+                                  }}
+                                  activeOpacity={0.8}
+                                >
+                                  <View style={styles.realityCardTopRow}>
+                                    <Text style={[styles.realityCardEyebrow, { color: '#10B981' }]}>
+                                      OPTION 1 · ZERO LIFESTYLE CHANGE
+                                    </Text>
+                                    <View
+                                      style={[
+                                        styles.radioCircle,
+                                        selectedRealityOption === 'STRESS_FREE' && styles.radioCircleSelected,
+                                      ]}
+                                    >
+                                      {selectedRealityOption === 'STRESS_FREE' && (
+                                        <Check size={11} color="#FFFFFF" strokeWidth={3} />
                                       )}
                                     </View>
+                                  </View>
+                                  <Text style={styles.realityCardTitle}>The Stress-Free Pace</Text>
+                                  <Text style={styles.realityCardExplanation}>
+                                    {cashFlowAnalysis.realityOffer.optionStressFree.explanation}
+                                  </Text>
+                                  <View style={styles.realityStatsPill}>
+                                    <Text style={styles.realityStatsPillText}>
+                                      ₹{toRupees(cashFlowAnalysis.realityOffer.optionStressFree.monthlyInstallmentPaise).toLocaleString('en-IN')}/month · 99% Safe
+                                    </Text>
+                                  </View>
+                                </TouchableOpacity>
 
-                                    <View style={styles.cadenceRowRight}>
-                                      <View style={styles.amountWrap}>
-                                        <Text
-                                          style={[
-                                            styles.cadenceRowAmount,
-                                            isSelected && styles.cadenceRowAmountSelected,
-                                          ]}
-                                        >
-                                          {formatPaise(item.amountPaise, false)}
-                                        </Text>
-                                        <Text style={styles.cadenceRowPeriod}>{item.periodLabel}</Text>
-                                      </View>
+                                {/* Option 2: The Envelope Trim Plan */}
+                                <TouchableOpacity
+                                  style={[
+                                    styles.realityCard,
+                                    selectedRealityOption === 'SACRIFICE' && styles.realityCardSelected,
+                                  ]}
+                                  onPress={() => {
+                                    setSelectedRealityOption('SACRIFICE');
+                                    setShowManualCadences(false);
+                                  }}
+                                  activeOpacity={0.8}
+                                >
+                                  <View style={styles.realityCardTopRow}>
+                                    <Text style={[styles.realityCardEyebrow, { color: '#F59E0B' }]}>
+                                      OPTION 2 · KEEP TARGET DATE
+                                    </Text>
+                                    <View
+                                      style={[
+                                        styles.radioCircle,
+                                        selectedRealityOption === 'SACRIFICE' && styles.radioCircleSelected,
+                                      ]}
+                                    >
+                                      {selectedRealityOption === 'SACRIFICE' && (
+                                        <Check size={11} color="#FFFFFF" strokeWidth={3} />
+                                      )}
+                                    </View>
+                                  </View>
+                                  <Text style={styles.realityCardTitle}>The Envelope Trim Plan</Text>
+                                  <Text style={styles.realityCardExplanation}>
+                                    {cashFlowAnalysis.realityOffer.optionSacrifice.explanation}
+                                  </Text>
+
+                                  {/* Envelope Cuts Breakdown */}
+                                  {cashFlowAnalysis.realityOffer.optionSacrifice.cuts.length > 0 && (
+                                    <View style={styles.realityCutsList}>
+                                      {cashFlowAnalysis.realityOffer.optionSacrifice.cuts.map((cut, idx) => (
+                                        <View key={`cut-${idx}`} style={styles.realityCutRow}>
+                                          <View style={{ flex: 1, marginRight: 8 }}>
+                                            <Text style={styles.realityCutName}>{cut.envelopeName}</Text>
+                                            <Text style={styles.realityCutHint}>{cut.plainHint}</Text>
+                                          </View>
+                                          <Text style={styles.realityCutAmount}>
+                                            -₹{toRupees(cut.cutMonthlyPaise).toLocaleString('en-IN')}/mo
+                                          </Text>
+                                        </View>
+                                      ))}
+                                    </View>
+                                  )}
+
+                                  <View style={styles.realityStatsPill}>
+                                    <Text style={[styles.realityStatsPillText, { color: '#F59E0B' }]}>
+                                      -₹{toRupees(cashFlowAnalysis.realityOffer.optionSacrifice.totalMonthlyCutPaise).toLocaleString('en-IN')}/month from flexible buckets
+                                    </Text>
+                                  </View>
+                                </TouchableOpacity>
+
+                                {/* Option 3: The Seed & Sprint Plan */}
+                                {cashFlowAnalysis.realityOffer.optionSeedSprint && (
+                                  <TouchableOpacity
+                                    style={[
+                                      styles.realityCard,
+                                      selectedRealityOption === 'SEED_SPRINT' && styles.realityCardSelected,
+                                    ]}
+                                    onPress={() => {
+                                      setSelectedRealityOption('SEED_SPRINT');
+                                      setShowManualCadences(false);
+                                    }}
+                                    activeOpacity={0.8}
+                                  >
+                                    <View style={styles.realityCardTopRow}>
+                                      <Text style={[styles.realityCardEyebrow, { color: colors.accent }]}>
+                                        OPTION 3 · USE IDLE CASH
+                                      </Text>
                                       <View
                                         style={[
                                           styles.radioCircle,
-                                          isSelected && styles.radioCircleSelected,
+                                          selectedRealityOption === 'SEED_SPRINT' && styles.radioCircleSelected,
                                         ]}
                                       >
-                                        {isSelected && (
+                                        {selectedRealityOption === 'SEED_SPRINT' && (
                                           <Check size={11} color="#FFFFFF" strokeWidth={3} />
                                         )}
                                       </View>
                                     </View>
+                                    <Text style={styles.realityCardTitle}>The Seed & Sprint Plan</Text>
+                                    <Text style={styles.realityCardExplanation}>
+                                      {cashFlowAnalysis.realityOffer.optionSeedSprint.explanation}
+                                    </Text>
+                                    <View style={styles.realityStatsPill}>
+                                      <Text style={styles.realityStatsPillText}>
+                                        Pay ₹{toRupees(cashFlowAnalysis.realityOffer.optionSeedSprint.reducedMonthlyInstallmentPaise).toLocaleString('en-IN')}/month after seed
+                                      </Text>
+                                    </View>
                                   </TouchableOpacity>
-                                );
-                              })}
-                            </View>
+                                )}
 
-                            {/* Optional Initial Funding */}
-                            <Text style={styles.inputLabel}>
-                              Initial Funding (Optional, from Unallocated)
-                            </Text>
-                            <TextInput
-                              style={styles.input}
-                              placeholder={`Available: ₹${unallocatedBalance.toLocaleString('en-IN')}`}
-                              placeholderTextColor={colors.textTertiary}
-                              keyboardType="numeric"
-                              value={initialFundingRupees}
-                              onChangeText={setInitialFundingRupees}
-                            />
+                                {/* Toggle Standard Schedules */}
+                                <TouchableOpacity
+                                  style={styles.toggleManualCadencesBtn}
+                                  onPress={() => {
+                                    const next = !showManualCadences;
+                                    setShowManualCadences(next);
+                                    if (next) {
+                                      setSelectedRealityOption('NONE');
+                                    } else {
+                                      setSelectedRealityOption('STRESS_FREE');
+                                    }
+                                  }}
+                                  activeOpacity={0.7}
+                                >
+                                  <Text style={styles.toggleManualCadencesText}>
+                                    {showManualCadences
+                                      ? '▲ Hide standard schedules'
+                                      : '▼ Or choose a standard monthly / weekly schedule'}
+                                  </Text>
+                                </TouchableOpacity>
+                              </View>
+                            )}
+
+                            {/* Standard Contribution Frequency Cards (Visible when no reality offer or user toggles) */}
+                            {(!cashFlowAnalysis?.realityOffer?.isNeeded || showManualCadences) && (
+                              <View>
+                                <Text style={styles.cadenceSectionTitle}>CHOOSE CONTRIBUTION FREQUENCY</Text>
+
+                                <View style={styles.cadenceStackContainer}>
+                                  {[
+                                    {
+                                      key: 'DAILY' as GoalCadence,
+                                      label: 'Daily',
+                                      amountPaise: dailyInstallmentPaise,
+                                      periodLabel: '/ day',
+                                      scheduleText: `${daysRemaining} daily installments`,
+                                      insight: cashFlowAnalysis?.cadences?.DAILY,
+                                      disabled: !cashFlowAnalysis?.isDailyAllowed,
+                                    },
+                                    {
+                                      key: 'WEEKLY' as GoalCadence,
+                                      label: 'Weekly',
+                                      amountPaise: weeklyInstallmentPaise,
+                                      periodLabel: '/ week',
+                                      scheduleText: `${Math.ceil(daysRemaining / 7)} weekly installments`,
+                                      insight: cashFlowAnalysis?.cadences?.WEEKLY,
+                                      disabled: false,
+                                    },
+                                    {
+                                      key: 'MONTHLY' as GoalCadence,
+                                      label: 'Monthly',
+                                      amountPaise: monthlyInstallmentPaise,
+                                      periodLabel: '/ month',
+                                      scheduleText: `${Math.max(1, Math.ceil(daysRemaining / 30))} monthly installments`,
+                                      insight: cashFlowAnalysis?.cadences?.MONTHLY,
+                                      disabled: false,
+                                    },
+                                  ].map((item) => {
+                                    const isSelected = selectedRealityOption === 'NONE' && cadence === item.key;
+
+                                    return (
+                                      <TouchableOpacity
+                                        key={item.key}
+                                        style={[
+                                          styles.cadenceRowCard,
+                                          isSelected && styles.cadenceRowCardSelected,
+                                          item.disabled && { opacity: 0.65 },
+                                        ]}
+                                        onPress={() => {
+                                          setSelectedRealityOption('NONE');
+                                          setCadence(item.key);
+                                        }}
+                                        activeOpacity={0.8}
+                                      >
+                                        <View style={styles.cadenceRowLeft}>
+                                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                            <Text
+                                              style={[
+                                                styles.cadenceRowTitle,
+                                                isSelected && styles.cadenceRowTitleSelected,
+                                              ]}
+                                            >
+                                              {item.label}
+                                            </Text>
+                                            {item.insight && (
+                                              <View
+                                                style={[
+                                                  styles.sustainabilityBadge,
+                                                  { backgroundColor: `${item.insight.badgeColor}22` },
+                                                ]}
+                                              >
+                                                <Text
+                                                  style={[
+                                                    styles.sustainabilityBadgeText,
+                                                    { color: item.insight.badgeColor },
+                                                  ]}
+                                                >
+                                                  {item.insight.badgeLabel}
+                                                </Text>
+                                              </View>
+                                            )}
+                                          </View>
+                                          <Text style={styles.cadenceRowSchedule}>
+                                            {item.scheduleText}
+                                          </Text>
+                                          {item.insight?.pacingSummary && (
+                                            <Text style={styles.cadencePacingSummaryText}>
+                                              {item.insight.pacingSummary}
+                                            </Text>
+                                          )}
+                                        </View>
+
+                                        <View style={styles.cadenceRowRight}>
+                                          <View style={styles.amountWrap}>
+                                            <Text
+                                              style={[
+                                                styles.cadenceRowAmount,
+                                                isSelected && styles.cadenceRowAmountSelected,
+                                              ]}
+                                            >
+                                              {formatPaise(item.amountPaise, false)}
+                                            </Text>
+                                            <Text style={styles.cadenceRowPeriod}>{item.periodLabel}</Text>
+                                          </View>
+                                          <View
+                                            style={[
+                                              styles.radioCircle,
+                                              isSelected && styles.radioCircleSelected,
+                                            ]}
+                                          >
+                                            {isSelected && (
+                                              <Check size={11} color="#FFFFFF" strokeWidth={3} />
+                                            )}
+                                          </View>
+                                        </View>
+                                      </TouchableOpacity>
+                                    );
+                                  })}
+                                </View>
+                              </View>
+                            )}
+
+                            {/* Optional Initial Funding (Hidden if Seed & Sprint option is active) */}
+                            {selectedRealityOption !== 'SEED_SPRINT' && (
+                              <View>
+                                <Text style={styles.inputLabel}>
+                                  Initial Funding (Optional, from Unallocated)
+                                </Text>
+                                <TextInput
+                                  style={styles.input}
+                                  placeholder={`Available: ₹${unallocatedBalance.toLocaleString('en-IN')}`}
+                                  placeholderTextColor={colors.textTertiary}
+                                  keyboardType="numeric"
+                                  value={initialFundingRupees}
+                                  onChangeText={setInitialFundingRupees}
+                                />
+                              </View>
+                            )}
 
                             {/* Inline error feedback if goal creation fails */}
                             {createStep2Error && (
@@ -1267,9 +1544,17 @@ export default function GoalsScreen() {
                               </View>
                             )}
 
-                            {/* Create Goal Action */}
+                            {/* Create Goal Action Button with Dynamic Label */}
                             <Button
-                              title="Create Goal & Link Bucket"
+                              title={
+                                selectedRealityOption === 'STRESS_FREE' && cashFlowAnalysis?.realityOffer?.isNeeded
+                                  ? 'Confirm Stress-Free Goal →'
+                                  : selectedRealityOption === 'SACRIFICE' && cashFlowAnalysis?.realityOffer?.isNeeded
+                                  ? 'Confirm & Trim Envelopes →'
+                                  : selectedRealityOption === 'SEED_SPRINT' && cashFlowAnalysis?.realityOffer?.isNeeded
+                                  ? 'Confirm & Seed Goal →'
+                                  : 'Create Goal & Link Bucket'
+                              }
                               variant="accent"
                               size="lg"
                               onPress={handleCreateGoal}
@@ -2419,5 +2704,110 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#000000',
+  },
+  // 3-Way Reality Option Deck Styles
+  realityHeaderBanner: {
+    padding: spacing.md,
+    borderRadius: borderRadius.default,
+    borderWidth: 1,
+    marginBottom: spacing.md,
+  },
+  realityHeaderTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  realityHeaderDesc: {
+    fontSize: 11.5,
+    color: colors.textSecondary,
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  realityCard: {
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: borderRadius.default,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    padding: spacing.md,
+    marginBottom: 10,
+  },
+  realityCardSelected: {
+    borderColor: colors.accent,
+    backgroundColor: 'rgba(94, 106, 210, 0.12)',
+  },
+  realityCardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  realityCardEyebrow: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 1.1,
+  },
+  realityCardTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    marginBottom: 4,
+  },
+  realityCardExplanation: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    lineHeight: 17,
+    marginBottom: 6,
+  },
+  realityCutsList: {
+    backgroundColor: 'rgba(0, 0, 0, 0.28)',
+    borderRadius: borderRadius.sm,
+    padding: spacing.sm,
+    marginTop: 4,
+    marginBottom: 8,
+    gap: 6,
+  },
+  realityCutRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  realityCutName: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  realityCutHint: {
+    fontSize: 10.5,
+    color: colors.textTertiary,
+  },
+  realityCutAmount: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#EF4444',
+  },
+  realityStatsPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: borderRadius.full,
+    marginTop: 2,
+  },
+  realityStatsPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.accent,
+  },
+  toggleManualCadencesBtn: {
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+    marginBottom: spacing.xs,
+  },
+  toggleManualCadencesText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textTertiary,
   },
 });
