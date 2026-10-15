@@ -24,6 +24,9 @@ import {
   CashFlowHabitAnalysis,
 } from '../../services/goals/goalPlanner';
 import { ThoughtLine } from '../../components/ui/ThoughtLine';
+import { RubberSegmentBar } from '../../components/ui/RubberSegmentBar';
+import { GoalStack } from '../../components/ui/GoalStack';
+import { getGoalVisuals, GoalVisuals } from '../../utils/goalVisuals';
 import {
   Target,
   Plus,
@@ -60,6 +63,8 @@ import {
   ShieldAlert,
   Scissors,
   Zap,
+  LayoutGrid,
+  Layers,
 } from 'lucide-react-native';
 
 /**
@@ -86,234 +91,6 @@ const GOAL_OPTIMIZATION_STATEMENTS = [
   'Finding your most reliable savings path',
 ];
 
-interface GoalVisuals {
-  IconComponent: React.ComponentType<{ size: number; color: string; strokeWidth?: number }>;
-  color: string;
-  bgColor: string;
-  emotionalTag?: string;
-  emotionalTagColor?: string;
-}
-
-function getGoalVisuals(goal: Goal, hasShortfall: boolean): GoalVisuals {
-  // 1. If completed
-  if (goal.status === 'COMPLETED' || goal.currentBalancePaise >= goal.targetAmountPaise) {
-    return {
-      IconComponent: Trophy,
-      color: '#EAB308',
-      bgColor: 'rgba(234, 179, 8, 0.16)',
-      emotionalTag: '🎉 Target Reached',
-      emotionalTagColor: '#EAB308',
-    };
-  }
-
-  // 2. If shortfall: empathetic emotional sigh
-  if (hasShortfall) {
-    return {
-      IconComponent: Wind,
-      color: '#FB7185',
-      bgColor: 'rgba(251, 113, 133, 0.18)',
-      emotionalTag: '💨 sigh · shortfall strain',
-      emotionalTagColor: '#FB7185',
-    };
-  }
-
-  // 3. If paused
-  if (goal.status === 'PAUSED') {
-    return {
-      IconComponent: Moon,
-      color: '#94A3B8',
-      bgColor: 'rgba(148, 163, 184, 0.15)',
-      emotionalTag: '⏸ On Hold',
-      emotionalTagColor: '#94A3B8',
-    };
-  }
-
-  // Pacing tight check
-  const now = new Date().getTime();
-  const deadlineTime = new Date(goal.deadline).getTime();
-  const daysLeft = Math.ceil((deadlineTime - now) / (1000 * 60 * 60 * 24));
-  const progressRatio = goal.targetAmountPaise > 0 ? goal.currentBalancePaise / goal.targetAmountPaise : 0;
-
-  if (daysLeft > 0 && daysLeft <= 14 && progressRatio < 0.45) {
-    return {
-      IconComponent: Wind,
-      color: '#F59E0B',
-      bgColor: 'rgba(245, 158, 11, 0.18)',
-      emotionalTag: '💨 sigh · clock ticking',
-      emotionalTagColor: '#F59E0B',
-    };
-  }
-
-  // 4. Content / name keyword matching
-  const name = goal.name.toLowerCase();
-
-  if (
-    name.includes('laptop') ||
-    name.includes('macbook') ||
-    name.includes('tech') ||
-    name.includes('phone') ||
-    name.includes('iphone') ||
-    name.includes('gadget') ||
-    name.includes('pc') ||
-    name.includes('camera')
-  ) {
-    return {
-      IconComponent: Laptop,
-      color: '#6366F1',
-      bgColor: 'rgba(99, 102, 241, 0.16)',
-    };
-  }
-
-  if (
-    name.includes('trip') ||
-    name.includes('travel') ||
-    name.includes('vacation') ||
-    name.includes('bali') ||
-    name.includes('flight') ||
-    name.includes('tour') ||
-    name.includes('holiday') ||
-    name.includes('japan')
-  ) {
-    return {
-      IconComponent: Plane,
-      color: '#06B6D4',
-      bgColor: 'rgba(6, 182, 212, 0.16)',
-    };
-  }
-
-  if (
-    name.includes('car') ||
-    name.includes('bike') ||
-    name.includes('vehicle') ||
-    name.includes('commute') ||
-    name.includes('scooter') ||
-    name.includes('ev') ||
-    name.includes('auto')
-  ) {
-    return {
-      IconComponent: Car,
-      color: '#F97316',
-      bgColor: 'rgba(249, 115, 22, 0.16)',
-    };
-  }
-
-  if (
-    name.includes('home') ||
-    name.includes('rent') ||
-    name.includes('flat') ||
-    name.includes('house') ||
-    name.includes('interior') ||
-    name.includes('furniture')
-  ) {
-    return {
-      IconComponent: Home,
-      color: '#8B5CF6',
-      bgColor: 'rgba(139, 92, 246, 0.16)',
-    };
-  }
-
-  if (
-    name.includes('emergency') ||
-    name.includes('health') ||
-    name.includes('medical') ||
-    name.includes('rainy') ||
-    name.includes('safety') ||
-    name.includes('hospital')
-  ) {
-    return {
-      IconComponent: HeartHandshake,
-      color: '#10B981',
-      bgColor: 'rgba(16, 185, 129, 0.16)',
-      emotionalTag: '🛡 Safety Net',
-      emotionalTagColor: '#10B981',
-    };
-  }
-
-  if (
-    name.includes('gift') ||
-    name.includes('wedding') ||
-    name.includes('anniversary') ||
-    name.includes('ring') ||
-    name.includes('birthday') ||
-    name.includes('partner')
-  ) {
-    return {
-      IconComponent: Gift,
-      color: '#EC4899',
-      bgColor: 'rgba(236, 72, 153, 0.16)',
-    };
-  }
-
-  if (
-    name.includes('course') ||
-    name.includes('book') ||
-    name.includes('study') ||
-    name.includes('exam') ||
-    name.includes('school') ||
-    name.includes('college') ||
-    name.includes('learn')
-  ) {
-    return {
-      IconComponent: GraduationCap,
-      color: '#3B82F6',
-      bgColor: 'rgba(59, 130, 246, 0.16)',
-    };
-  }
-
-  if (
-    name.includes('game') ||
-    name.includes('ps5') ||
-    name.includes('playstation') ||
-    name.includes('xbox') ||
-    name.includes('concert') ||
-    name.includes('music') ||
-    name.includes('fun')
-  ) {
-    return {
-      IconComponent: Gamepad2,
-      color: '#A855F7',
-      bgColor: 'rgba(168, 85, 247, 0.16)',
-    };
-  }
-
-  if (
-    name.includes('invest') ||
-    name.includes('stock') ||
-    name.includes('crypto') ||
-    name.includes('wealth') ||
-    name.includes('growth') ||
-    name.includes('fund')
-  ) {
-    return {
-      IconComponent: TrendingUp,
-      color: '#22C55E',
-      bgColor: 'rgba(34, 197, 94, 0.16)',
-    };
-  }
-
-  // 5. Deterministic rotation based on goal ID/name hash
-  const PALETTE = [
-    { icon: Rocket, color: '#38BDF8', bg: 'rgba(56, 189, 248, 0.16)' },
-    { icon: Compass, color: '#F472B6', bg: 'rgba(244, 114, 182, 0.16)' },
-    { icon: Flame, color: '#FB923C', bg: 'rgba(251, 146, 60, 0.16)' },
-    { icon: Sparkles, color: '#A78BFA', bg: 'rgba(167, 139, 250, 0.16)' },
-    { icon: ShieldCheck, color: '#34D399', bg: 'rgba(52, 211, 153, 0.16)' },
-  ];
-
-  let hash = 0;
-  const seed = goal.id || goal.name;
-  for (let i = 0; i < seed.length; i++) {
-    hash = (hash << 5) - hash + seed.charCodeAt(i);
-    hash |= 0;
-  }
-  const chosen = PALETTE[Math.abs(hash) % PALETTE.length];
-
-  return {
-    IconComponent: chosen.icon,
-    color: chosen.color,
-    bgColor: chosen.bg,
-  };
-}
 
 export default function GoalsScreen() {
   const {
@@ -333,6 +110,7 @@ export default function GoalsScreen() {
   const [selectedGoal, setSelectedGoal] = useState<Goal | null>(null);
   const [activeShortfall, setActiveShortfall] = useState<GoalShortfall | null>(null);
   const [cashFlowAnalysis, setCashFlowAnalysis] = useState<CashFlowHabitAnalysis | null>(null);
+  const [goalViewMode, setGoalViewMode] = useState<'grid' | 'stack'>('grid');
 
   // Custom Confirmation Modal states (replacing native Alert.alert)
   const [goalToDelete, setGoalToDelete] = useState<Goal | null>(null);
@@ -739,24 +517,60 @@ export default function GoalsScreen() {
         <View style={styles.topBar}>
           <View style={styles.topBarHeaderLeft}>
             <Text style={styles.headerTitle} numberOfLines={1}>Financial Goals</Text>
-            <Text style={styles.headerSubtitle} numberOfLines={2}>
+            <Text style={styles.headerSubtitle} numberOfLines={1}>
               Dedicated Goal Buckets with automated partial allocations.
             </Text>
           </View>
-          <TouchableOpacity
-            style={styles.addGoalBtn}
-            activeOpacity={0.8}
-            onPress={handleOpenCreateModal}
-          >
-            <Plus size={16} color="#FFFFFF" />
-            <Text style={styles.addGoalBtnText}>New Goal</Text>
-          </TouchableOpacity>
+
+          <View style={styles.topBarRightActions}>
+            <RubberSegmentBar<'grid' | 'stack'>
+              tabs={[
+                {
+                  id: 'grid',
+                  label: '',
+                  icon: (color) => (
+                    <LayoutGrid
+                      size={15}
+                      color={color}
+                      strokeWidth={2.2}
+                    />
+                  ),
+                },
+                {
+                  id: 'stack',
+                  label: '',
+                  icon: (color) => (
+                    <Layers
+                      size={15}
+                      color={color}
+                      strokeWidth={2.2}
+                    />
+                  ),
+                },
+              ]}
+              activeTab={goalViewMode}
+              onTabChange={(mode) => setGoalViewMode(mode)}
+              variant="compact"
+              style={styles.viewToggleRubber}
+            />
+
+            <TouchableOpacity
+              style={styles.addGoalBtn}
+              activeOpacity={0.8}
+              onPress={handleOpenCreateModal}
+            >
+              <Plus size={15} color="#FFFFFF" strokeWidth={2.4} />
+              <Text style={styles.addGoalBtnText}>New Goal</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <ScrollView
           style={styles.scrollArea}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          scrollEnabled={goalViewMode === 'grid'}
+          bounces={goalViewMode === 'grid'}
         >
           {/* Unresolved Shortfalls Alert Card */}
           {shortfalls.length > 0 && (
@@ -797,7 +611,7 @@ export default function GoalsScreen() {
             </View>
           )}
 
-          {/* Goals List */}
+          {/* Goals Content: Empty State vs Stack vs 2-Column Grid */}
           {goals.length === 0 ? (
             <Card variant="raised" style={styles.emptyCard}>
               <Target size={44} color={colors.accent} style={{ marginBottom: spacing.md }} />
@@ -813,150 +627,110 @@ export default function GoalsScreen() {
                 style={{ marginTop: spacing.lg }}
               />
             </Card>
+          ) : goalViewMode === 'stack' ? (
+            <GoalStack
+              goals={goals}
+              shortfalls={shortfalls}
+              onOpenRecoveryModal={handleOpenRecoveryModal}
+              onOpenMoveMoney={handleOpenMoveMoney}
+              onTogglePause={handleTogglePause}
+              onDeletePress={(g) => setGoalToDelete(g)}
+            />
           ) : (
-            goals.map((goal) => {
-              const progressRatio = Math.min(
-                1,
-                goal.targetAmountPaise > 0
-                  ? goal.currentBalancePaise / goal.targetAmountPaise
-                  : 0
-              );
-              const progressPercent = Math.round(progressRatio * 100);
-              const remainingPaise = Math.max(0, goal.targetAmountPaise - goal.currentBalancePaise);
-              const goalShortfall = shortfalls.find((s) => s.goalId === goal.id && !s.resolved);
-              const visuals = getGoalVisuals(goal, !!goalShortfall);
+            <View style={styles.goalsGrid}>
+              {goals.map((goal) => {
+                const progressRatio = Math.min(
+                  1,
+                  goal.targetAmountPaise > 0
+                    ? goal.currentBalancePaise / goal.targetAmountPaise
+                    : 0
+                );
+                const progressPercent = Math.round(progressRatio * 100);
+                const goalShortfall = shortfalls.find((s) => s.goalId === goal.id && !s.resolved);
+                const visuals = getGoalVisuals(goal, !!goalShortfall);
 
-              return (
-                <Card key={goal.id} variant="raised" style={styles.goalCard}>
-                  <View style={styles.goalHeaderRow}>
-                    <View style={styles.goalNameBox}>
-                      <View style={[styles.goalIconCircle, { backgroundColor: visuals.bgColor }]}>
-                        <visuals.IconComponent size={17} color={visuals.color} strokeWidth={2.2} />
+                return (
+                  <TouchableOpacity
+                    key={goal.id}
+                    style={styles.gridGoalCard}
+                    activeOpacity={0.85}
+                    onPress={() => handleOpenMoveMoney(goal)}
+                  >
+                    {/* Header: Icon + Status */}
+                    <View style={styles.gridCardHeader}>
+                      <View style={[styles.gridIconCircle, { backgroundColor: visuals.bgColor }]}>
+                        <visuals.IconComponent size={16} color={visuals.color} strokeWidth={2.2} />
                       </View>
-                      <View style={styles.goalTitleColumn}>
-                        <Text style={styles.goalNameText} numberOfLines={1}>
-                          {goal.name}
-                        </Text>
-                        {visuals.emotionalTag && (
-                          <Text
-                            style={[
-                              styles.goalEmotionalTag,
-                              { color: visuals.emotionalTagColor || visuals.color },
-                            ]}
-                          >
-                            {visuals.emotionalTag}
-                          </Text>
-                        )}
-                      </View>
-                    </View>
-                    <View
-                      style={[
-                        styles.statusBadge,
-                        goal.status === 'COMPLETED' && styles.statusBadgeCompleted,
-                        goal.status === 'PAUSED' && styles.statusBadgePaused,
-                      ]}
-                    >
-                      <Text
+                      <View
                         style={[
-                          styles.statusBadgeText,
-                          goal.status === 'COMPLETED' && { color: colors.statusSuccess },
-                          goal.status === 'PAUSED' && { color: colors.textSecondary },
+                          styles.gridStatusBadge,
+                          goal.status === 'COMPLETED' && styles.statusBadgeCompleted,
+                          goal.status === 'PAUSED' && styles.statusBadgePaused,
                         ]}
                       >
-                        {goal.status}
-                      </Text>
+                        <Text
+                          style={[
+                            styles.gridStatusBadgeText,
+                            goal.status === 'COMPLETED' && { color: colors.statusSuccess },
+                            goal.status === 'PAUSED' && { color: colors.textSecondary },
+                          ]}
+                        >
+                          {goal.status}
+                        </Text>
+                      </View>
                     </View>
-                  </View>
 
-                  {/* Progress Bar */}
-                  <View style={styles.progressBarTrack}>
-                    <View
-                      style={[
-                        styles.progressBarFill,
-                        { width: `${progressPercent}%`, backgroundColor: visuals.color },
-                        goal.status === 'COMPLETED' && { backgroundColor: colors.statusSuccess },
-                      ]}
-                    />
-                  </View>
+                    {/* Goal Name */}
+                    <Text style={styles.gridGoalName} numberOfLines={2}>
+                      {goal.name}
+                    </Text>
 
-                  {/* Financial Metrics */}
-                  <View style={styles.metricsRow}>
-                    <View>
-                      <Text style={styles.metricLabel}>Saved</Text>
-                      <Text style={styles.metricVal}>
+                    {/* Amounts */}
+                    <View style={styles.gridAmountsGroup}>
+                      <Text style={styles.gridSavedText}>
                         {formatPaise(goal.currentBalancePaise, false)}
                       </Text>
+                      <Text style={styles.gridTargetText} numberOfLines={1}>
+                        target {formatPaise(goal.targetAmountPaise, false)}
+                      </Text>
                     </View>
-                    <View style={{ alignItems: 'center' }}>
-                      <Text style={styles.metricLabel}>Progress</Text>
-                      <Text style={[styles.metricVal, { color: visuals.color }]}>
+
+                    {/* Progress Bar */}
+                    <View style={styles.gridProgressBarTrack}>
+                      <View
+                        style={[
+                          styles.gridProgressBarFill,
+                          { width: `${progressPercent}%`, backgroundColor: visuals.color },
+                          goal.status === 'COMPLETED' && { backgroundColor: colors.statusSuccess },
+                        ]}
+                      />
+                    </View>
+
+                    {/* Footer: Cadence & Percent */}
+                    <View style={styles.gridCardFooter}>
+                      <View style={styles.gridCadencePill}>
+                        <Text style={styles.gridCadenceText}>{goal.cadence}</Text>
+                      </View>
+                      <Text style={[styles.gridPercentText, { color: visuals.color }]}>
                         {progressPercent}%
                       </Text>
                     </View>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={styles.metricLabel}>Target</Text>
-                      <Text style={styles.metricVal}>
-                        {formatPaise(goal.targetAmountPaise, false)}
-                      </Text>
-                    </View>
-                  </View>
 
-                  <View style={styles.divider} />
-
-                  {/* Schedule Info */}
-                  <View style={styles.scheduleRow}>
-                    <View style={styles.scheduleItem}>
-                      <Clock size={13} color={colors.textTertiary} />
-                      <Text style={styles.scheduleText}>
-                        {formatPaise(goal.installmentAmountPaise, false)} / {goal.cadence.toLowerCase()}
-                      </Text>
-                    </View>
-                    <View style={styles.scheduleItem}>
-                      <Calendar size={13} color={colors.textTertiary} />
-                      <Text style={styles.scheduleText}>
-                        Due: {goal.nextContributionDate}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* Actions Row */}
-                  <View style={styles.goalActionsRow}>
-                    <TouchableOpacity
-                      style={styles.addFundsActionBtn}
-                      onPress={() => handleOpenMoveMoney(goal)}
-                      activeOpacity={0.7}
-                    >
-                      <Plus size={13} color={colors.accent} />
-                      <Text style={styles.addFundsText}>Move Money</Text>
-                    </TouchableOpacity>
-
-                    <View style={styles.iconActions}>
+                    {/* Shortfall Tag if present */}
+                    {goalShortfall && (
                       <TouchableOpacity
-                        style={styles.iconActionBtn}
-                        onPress={() => handleTogglePause(goal)}
-                        activeOpacity={0.7}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={styles.gridShortfallBadge}
+                        activeOpacity={0.8}
+                        onPress={() => handleOpenRecoveryModal(goalShortfall)}
                       >
-                        {goal.status === 'ACTIVE' ? (
-                          <Pause size={15} color={colors.textSecondary} />
-                        ) : (
-                          <Play size={15} color={colors.statusSuccess} />
-                        )}
+                        <AlertTriangle size={10} color={colors.statusWarning} />
+                        <Text style={styles.gridShortfallText}>Shortfall</Text>
                       </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={styles.iconActionBtn}
-                        onPress={() => setGoalToDelete(goal)}
-                        activeOpacity={0.7}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <Trash2 size={15} color={colors.statusError} />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </Card>
-              );
-            })
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           )}
         </ScrollView>
 
@@ -1026,8 +800,49 @@ export default function GoalsScreen() {
                         onChangeText={setTargetAmountRupees}
                       />
 
-                      {/* Calendar Date Selector */}
-                      <Text style={styles.inputLabel}>Target Deadline</Text>
+                      {/* Target Deadline Header with days count */}
+                      <View style={styles.dateSelectorHeader}>
+                        <Text style={styles.inputLabelNoMargin}>Target Deadline</Text>
+                        <Text style={styles.deadlineDaysCountText}>{daysRemaining} days away</Text>
+                      </View>
+
+                      {/* Quick Horizon Presets */}
+                      <View style={styles.presetPillsRow}>
+                        {[
+                          { label: '+30D', days: 30 },
+                          { label: '+90D', days: 90 },
+                          { label: '+6M', days: 180 },
+                          { label: '+1Y', days: 365 },
+                        ].map((preset) => {
+                          const isPresetActive = Math.abs(daysRemaining - preset.days) <= 1;
+                          return (
+                            <TouchableOpacity
+                              key={preset.label}
+                              style={[
+                                styles.presetPill,
+                                isPresetActive && styles.presetPillActive,
+                              ]}
+                              activeOpacity={0.7}
+                              onPress={() => {
+                                const d = new Date();
+                                d.setDate(d.getDate() + preset.days);
+                                setTargetDate(d);
+                                setCalendarMonth(d.getMonth());
+                                setCalendarYear(d.getFullYear());
+                              }}
+                            >
+                              <Text
+                                style={[
+                                  styles.presetPillText,
+                                  isPresetActive && styles.presetPillTextActive,
+                                ]}
+                              >
+                                {preset.label}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
 
                       {/* Interactive Calendar Month Picker */}
                       <View style={styles.calendarContainer}>
@@ -1115,18 +930,9 @@ export default function GoalsScreen() {
                           <Text style={styles.inlineErrorText}>{createStep1Error}</Text>
                         </View>
                       )}
-
-                      {/* Primary Continue Button to Step 2 */}
-                      <Button
-                        title="Continue to Savings Plan →"
-                        variant="accent"
-                        size="lg"
-                        onPress={handleProceedToStep2}
-                        disabled={!goalName.trim() || !(parseFloat(targetAmountRupees) > 0)}
-                        style={styles.createSubmitBtn}
-                      />
                     </View>
                   )}
+
 
                   {/* ================= STEP 2: CADENCE & SAVINGS PLAN ================= */}
                   {createStep === 2 && (
@@ -1544,29 +1350,46 @@ export default function GoalsScreen() {
                               </View>
                             )}
 
-                            {/* Create Goal Action Button with Dynamic Label */}
-                            <Button
-                              title={
-                                selectedRealityOption === 'STRESS_FREE' && cashFlowAnalysis?.realityOffer?.isNeeded
-                                  ? 'Confirm Stress-Free Goal →'
-                                  : selectedRealityOption === 'SACRIFICE' && cashFlowAnalysis?.realityOffer?.isNeeded
-                                  ? 'Confirm & Trim Envelopes →'
-                                  : selectedRealityOption === 'SEED_SPRINT' && cashFlowAnalysis?.realityOffer?.isNeeded
-                                  ? 'Confirm & Seed Goal →'
-                                  : 'Create Goal & Link Bucket'
-                              }
-                              variant="accent"
-                              size="lg"
-                              onPress={handleCreateGoal}
-                              style={styles.createSubmitBtn}
-                            />
                           </View>
                         )
                       )}
                     </View>
                   )}
                 </ScrollView>
+
+                {/* Sticky Action Footer - Always visible, never clipped or out of bounds! */}
+                <View style={styles.modalFooter}>
+                  {createStep === 1 ? (
+                    <Button
+                      title="Continue to Savings Plan →"
+                      variant="accent"
+                      size="lg"
+                      onPress={handleProceedToStep2}
+                      disabled={!goalName.trim() || !(parseFloat(targetAmountRupees) > 0)}
+                      style={styles.modalFooterBtn}
+                    />
+                  ) : (
+                    !isOptimizing && hasOptimized && (
+                      <Button
+                        title={
+                          selectedRealityOption === 'STRESS_FREE' && cashFlowAnalysis?.realityOffer?.isNeeded
+                            ? 'Confirm Stress-Free Goal →'
+                            : selectedRealityOption === 'SACRIFICE' && cashFlowAnalysis?.realityOffer?.isNeeded
+                            ? 'Confirm & Trim Envelopes →'
+                            : selectedRealityOption === 'SEED_SPRINT' && cashFlowAnalysis?.realityOffer?.isNeeded
+                            ? 'Confirm & Seed Goal →'
+                            : 'Create Goal & Link Bucket'
+                        }
+                        variant="accent"
+                        size="lg"
+                        onPress={handleCreateGoal}
+                        style={styles.modalFooterBtn}
+                      />
+                    )
+                  )}
+                </View>
               </View>
+
             </KeyboardAvoidingView>
           </View>
         </Modal>
@@ -1867,19 +1690,27 @@ const styles = StyleSheet.create({
     marginTop: 2,
     lineHeight: 16,
   },
+  topBarRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  viewToggleRubber: {
+    marginRight: 0,
+  },
   addGoalBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
     backgroundColor: colors.accent,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
     borderRadius: borderRadius.full,
     flexShrink: 0,
   },
   addGoalBtnText: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '700',
     color: '#FFFFFF',
   },
   scrollArea: {
@@ -1887,6 +1718,117 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: 100,
+  },
+  goalsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: 12,
+    paddingBottom: 100,
+  },
+  gridGoalCard: {
+    width: '48.2%',
+    backgroundColor: colors.surfaceRaised,
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  gridCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  gridIconCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gridStatusBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: borderRadius.sm,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  gridStatusBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.accent,
+    letterSpacing: 0.5,
+  },
+  gridGoalName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    minHeight: 34,
+    marginTop: 4,
+    lineHeight: 17,
+  },
+  gridAmountsGroup: {
+    marginVertical: 6,
+  },
+  gridSavedText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    fontVariant: ['tabular-nums'],
+  },
+  gridTargetText: {
+    fontSize: 10,
+    color: colors.textTertiary,
+    marginTop: 1,
+    fontVariant: ['tabular-nums'],
+  },
+  gridProgressBarTrack: {
+    height: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: borderRadius.pill,
+    overflow: 'hidden',
+    marginVertical: 4,
+  },
+  gridProgressBarFill: {
+    height: '100%',
+    borderRadius: borderRadius.pill,
+  },
+  gridCardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  gridCadencePill: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: borderRadius.sm,
+  },
+  gridCadenceText: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  gridPercentText: {
+    fontSize: 11,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  gridShortfallBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginTop: 6,
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: borderRadius.sm,
+  },
+  gridShortfallText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: colors.statusWarning,
   },
   shortfallContainer: {
     marginBottom: spacing.md,
@@ -2091,7 +2033,9 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalKeyboardContainer: {
-    maxHeight: '92%',
+    width: '100%',
+    maxHeight: '90%',
+    justifyContent: 'flex-end',
   },
   modalContent: {
     backgroundColor: colors.surfaceRaised,
@@ -2102,6 +2046,8 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === 'ios' ? spacing.xl : spacing.lg,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
+    maxHeight: '100%',
+    flexShrink: 1,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -2148,7 +2094,16 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   modalScrollContent: {
-    paddingBottom: spacing.xxl,
+    paddingBottom: spacing.lg,
+  },
+  modalFooter: {
+    paddingTop: spacing.sm,
+    marginTop: spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  modalFooterBtn: {
+    width: '100%',
   },
   inputLabel: {
     fontSize: 12,
@@ -2156,6 +2111,43 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginBottom: 6,
     marginTop: spacing.md,
+  },
+  inputLabelNoMargin: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  deadlineDaysCountText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.accent,
+  },
+  presetPillsRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: spacing.sm,
+    marginTop: 4,
+  },
+  presetPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: borderRadius.pill,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  presetPillActive: {
+    backgroundColor: 'rgba(94, 106, 210, 0.22)',
+    borderColor: colors.accent,
+  },
+  presetPillText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  presetPillTextActive: {
+    color: colors.accent,
+    fontWeight: '700',
   },
   input: {
     backgroundColor: colors.surfaceBase,
@@ -2205,7 +2197,7 @@ const styles = StyleSheet.create({
   weekdayRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   weekdayText: {
     width: '14%',
@@ -2220,10 +2212,10 @@ const styles = StyleSheet.create({
   },
   dayCell: {
     width: '14.28%',
-    height: 28,
+    height: 26,
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 1,
+    marginVertical: 0,
     borderRadius: 6,
   },
   dayCellPast: {

@@ -311,24 +311,32 @@ The architecture comprises two primary unidirectional pipelines operating over a
 
 ## 6. Module 5: Goals & Cadence Scheduler
 
-### Feature 5.1: Dedicated Goals Management View & Adaptive Copilot Deck
-- **Functional Role**: Coordinates savings goals, cadence progression, shortfall strain alerts, and the adaptive goal copilot reality deck.
+### Feature 5.1: Dedicated Goals Management View, View Modes & Modal Viewport Containment
+- **Functional Role**: Coordinates savings goals, cadence progression, independent view modes (Grid and Stack), and modal viewport containment.
 - **Exact Source Code Locations**:
-  - `src/app/(tabs)/goals.tsx` (Lines 1–860)
+  - `src/app/(tabs)/goals.tsx` (Lines 1–900)
+  - `src/components/ui/GoalStack.tsx` (Lines 1–400)
+  - `src/utils/goalVisuals.ts` (Lines 1–250)
 - **Schema & State Interactions**:
-  - Displays active goals with target amount, saved amount, deadline date, and cadence tags.
+  - **Independent View Mode Switcher**:
+    - The top bar renders a compact `RubberSegmentBar` with Grid and Stack tabs.
+    - View mode state is decoupled from the buckets tab.
+    - Grid view renders goals in a structured two-column layout.
+    - Stack view renders goals in an interactive three-dimensional card deck via `GoalStack`.
+    - `GoalStack` applies spring physics (`stiffness: 260, damping: 20`), drag gestures, and pagination telemetry.
+  - **Create Goal Modal Viewport Containment**:
+    - Action buttons anchor inside a sticky modal footer outside the scroll view.
+    - Modal container applies strict viewport bounds (`maxHeight: '90%'`, `flexShrink: 1`).
+    - Step 1 includes quick horizon presets (+30D, +90D, +6M, +1Y) and compact calendar day cells.
+    - Step 2 anchors the dynamic confirmation button permanently above the fold.
   - Shortfall Strain Banner alerts the user when unallocated cash cannot cover upcoming installments.
-  - Two-Step Goal Creation Modal:
-    - Step 1: Captures goal name, target amount, emoji icon, and deadline date using an interactive calendar.
-    - Step 2: Runs a deliberate `ThoughtLine` analysis sequence, then displays cash-flow telemetry and reality options.
   - Reality Offer Deck:
     - Option 1 (The Stress-Free Pace): Dilates deadline date to protect the user's current lifestyle.
     - Option 2 (The Envelope Trim Plan): Keeps original target date by trimming flexible envelopes like Dining and Shopping.
     - Option 3 (The Seed & Sprint Plan): Siphons idle unallocated cash upfront to lower monthly payments.
-  - Manual Cadence Switcher: Allows the user to view and pick standard Daily, Weekly, or Monthly plans.
   - Feasibility Alert Banner: Displays Solvent, Balanced, or Deficit status based on 90-day cash flow.
-  - Unlocked Pro Feature Hook: Simulates unlocked Pro copilot tier for development and testing.
 - **Failure Modes & Edge Cases**:
+  - *Viewport Overflow*: Sticky modal footer guarantees confirmation button visibility across small mobile screens.
   - *Past Date Selection*: Calendar picker blocks past dates to prevent negative schedule math.
   - *Zero Discretionary Surplus*: Disables Option 2 trim suggestions if no flexible envelopes have positive limits.
 
