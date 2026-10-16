@@ -438,16 +438,25 @@ The architecture comprises two primary unidirectional pipelines operating over a
 - **Failure Modes & Edge Cases**:
   - *Ambiguous Handles*: Defaults safely to `P2P`, preventing blocked third-party intents.
 
-### Feature 6.5: NPCI-Compliant URI Builder & Anti-Spoofing
-- **Functional Role**: Assembles outbound `upi://pay` URIs strictly complying with NPCI standards while preventing gateway errors.
+### Feature 6.5: NPCI-Compliant URI Builder & Payee Name Guarantee (Solutions A & B)
+- **Functional Role**: Assembles outbound `upi://pay` URIs strictly complying with NPCI standards, preserving authentic merchant parameters and guaranteeing mandatory payee names.
 - **Exact Source Code Locations**:
-  - `src/services/payment/uriBuilder.ts` (Lines 19–132)
+  - `src/services/payment/uriBuilder.ts` (Lines 1–175)
+  - `src/app/payment/scan.tsx` (Lines 95–130)
+  - `src/app/payment/confirm.tsx` (Lines 240–260)
 - **Schema & State Interactions**:
-  - Preserves scanned merchant signatures (`mode`, `orgid`, `sign`, `mc`, `mid`, `sid`, `tid`) when `rawPayload` is provided.
-  - **Anti-Spoofing Rule**: Strips `pn` if it matches a 10-digit phone number or matches the VPA prefix, allowing Google Pay to safely resolve the registered Core Banking name.
+  - **Solution A (Authentic Scanned QR Preservation)**:
+    - Retains scanned `pn` (Payee Name) verbatim; never strips or deletes merchant names.
+    - Preserves authentic query parameter order from original QR payloads.
+    - Places cryptographic signature (`sign=`) strictly at the end of the query string per NPCI v1.6+.
+    - Suppresses synthetic transaction note injection (`tn`) on merchant QRs to avoid payload alteration.
+  - **Solution B (NPCI Mandatory `pn` Fallback)**:
+    - Implements `deriveFallbackPayeeName(vpa, providedPn)` to guarantee `pn` is always present and non-empty.
+    - Derives human-readable names for manual entries (`phone@handle` -> `UPI User {last4}`, `dotted.name@handle` -> `Dotted Name`).
   - **Internal Ref Sanitization**: Strips local tracking references (`tr` starting with `V1`) from outbound merchant URIs.
 - **Failure Modes & Edge Cases**:
-  - *VPA Name Mismatch*: Stripping unverified `pn` avoids acquiring bank rejections.
+  - *Post-PIN Receiver Name Mismatch (NPCI PJ5 / C08)*: Resolved by ensuring `pn` is never omitted and authentic merchant names are never deleted.
+  - *Signature Tampering*: Resolved by preserving original query sequence and placing `sign` at the end.
 
 ### Feature 6.6: Payment Confirmation & WebGL Shimmer Canvas
 - **Functional Role**: Displays payment review details (payee, amount, deducting envelope) over an interactive WebGL pixel shader canvas.

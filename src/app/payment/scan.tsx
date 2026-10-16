@@ -18,6 +18,7 @@ import { Button } from '../../components/common/Button';
 import { QRScannerReticle } from '../../components/ui/QRScannerReticle';
 import { parseUPIUri } from '../../services/payment/upiParser';
 import { getMatchingUPIHandles } from '../../services/payment/upiHandles';
+import { deriveFallbackPayeeName } from '../../services/payment/uriBuilder';
 import { useAppStore } from '../../store/useAppStore';
 import { ParsedUPIQR } from '../../types';
 import {
@@ -104,15 +105,16 @@ export default function QRScanScreen() {
 
     const parsedAmount = amountInput ? parseFloat(amountInput) : 0;
     const note = noteInput.trim() || undefined;
+    const derivedName = deriveFallbackPayeeName(finalVpa);
 
     const parsed: ParsedUPIQR = {
       isValid: true,
       payeeVpa: finalVpa,
-      payeeName: undefined,
+      payeeName: derivedName,
       amount: parsedAmount > 0 ? parsedAmount : undefined,
       currency: 'INR',
       transactionNote: note,
-      rawPayload: `upi://pay?pa=${encodeURIComponent(finalVpa)}${
+      rawPayload: `upi://pay?pa=${encodeURIComponent(finalVpa)}&pn=${encodeURIComponent(derivedName)}${
         parsedAmount > 0 ? `&am=${parsedAmount.toFixed(2)}` : ''
       }&cu=INR`,
       isDynamic: parsedAmount > 0,

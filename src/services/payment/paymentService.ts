@@ -110,7 +110,7 @@ export function generateTransactionRef(prefix = 'V1'): string {
   return `${prefix}${timestamp}${randomSuffix}`.slice(0, 30);
 }
 
-export { buildUPIUri } from './uriBuilder';
+export { buildUPIUri, deriveFallbackPayeeName } from './uriBuilder';
 
 /**
  * Checks whether the specified UPI app or any UPI handler is available on the device.

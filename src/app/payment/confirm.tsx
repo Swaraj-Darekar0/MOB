@@ -246,7 +246,7 @@ export default function PaymentConfirmScreen() {
         pn: parsedQR.payeeName,
         am: numericAmount,
         tr: parsedQR.transactionRef,
-        tn: parsedQR.transactionNote || `MOB from ${currentEnvelope.name}`,
+        tn: parsedQR.transactionNote || (isMerchant ? undefined : `MOB from ${currentEnvelope.name}`),
         mc: parsedQR.merchantCode,
         mid: parsedQR.merchantId,
         sid: parsedQR.storeId,
